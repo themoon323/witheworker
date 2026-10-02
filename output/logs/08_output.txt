@@ -1,0 +1,52 @@
+N = 318 | 문항 수 = 46 | 완전사례 = 318 
+제외 문항 포함 여부: 일의의미3 = FALSE / 조직지원6 = FALSE 
+문항값 = 원자료 그대로(재역채점 없음): 리더십1 처음 5값 = 4 1 4 3 4 
+
+수렴 = TRUE | 음의 분산 = FALSE | 사용 N = 318 
+
+=== 적합도 3종 대조 (일반 / 척도보정 / 강건) ===
+                chisq                    df          chisq.scaled 
+             2475.934               979.000              2180.496 
+            df.scaled                   cfi            cfi.scaled 
+              979.000                 0.872                 0.879 
+           cfi.robust                   tli            tli.scaled 
+                0.882                 0.865                 0.872 
+           tli.robust                 rmsea          rmsea.scaled 
+                0.875                 0.069                 0.062 
+         rmsea.robust rmsea.ci.lower.robust rmsea.ci.upper.robust 
+                0.066                 0.062                 0.070 
+                 srmr 
+                0.055 
+
+잠재상관 (완전표준화 해):
+       EL    MW    PO   POS    IB
+EL  1.000                        
+MW  0.704 1.000                  
+PO  0.770 0.800 1.000            
+POS 0.826 0.676 0.867 1.000      
+IB  0.667 0.779 0.789 0.658 1.000
+
+AVE 대조 (semTools vs 수동계산 mean(std.loading^2)):
+             EL     MW     PO    POS     IB
+semTools 0.5523 0.6458 0.5541 0.5699 0.6500
+수동     0.5414 0.6365 0.5192 0.5721 0.6419
+CR(omega): 0.936 0.942 0.904 0.904 0.942 
+
+=== Fornell-Larcker: 대각=sqrt(AVE), 비대각=잠재상관 ===
+       EL    MW    PO   POS    IB
+EL  0.743                        
+MW  0.704 0.804                  
+PO  0.770 0.800 0.744            
+POS 0.826 0.676 0.867 0.755      
+IB  0.667 0.779 0.789 0.658 0.806
+
+HTMT (Pearson 상관 기반, semTools 기본 = 기존 보고값):
+       EL    MW    PO   POS    IB
+EL  1.000                        
+MW  0.712 1.000                  
+PO  0.787 0.808 1.000            
+POS 0.857 0.673 0.874 1.000      
+IB  0.678 0.790 0.825 0.668 1.000
+
+기존 저장값과 최대 절대차 = 0.0004401941 
+기존 잠재상관 저장값 수 = 10 (10쌍이면 정상)
