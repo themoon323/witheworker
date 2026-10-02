@@ -1,0 +1,35 @@
+      척도 문항수   N alpha
+1   리더십     12 318 0.933
+2 일의의미      9 318 0.940
+3 주인의식      9 318 0.903
+4 조직지원      7 318 0.892
+5 혁신행동      9 318 0.941
+                     변수     M    SD
+리더십합계     리더십합계 3.662 0.728
+일의의미합계 일의의미합계 3.441 0.773
+주인의식합계 주인의식합계 3.283 0.775
+조직지원합계 조직지원합계 3.308 0.789
+혁신행동합계 혁신행동합계 3.584 0.747
+Warning messages:
+1: In abbreviate(rownames(r), minlength = minlength) :
+  abbreviate used with non-ASCII chars
+2: In abbreviate(colnames(r), minlength = minlength) :
+  abbreviate used with non-ASCII chars
+3: In abbreviate(dimnames(ans)[[2L]], minlength = abbr.colnames) :
+  abbreviate used with non-ASCII chars
+
+상관행렬 r:
+             리더십합계 일의의미합계 주인의식합계 조직지원합계 혁신행동합계
+리더십합계        1.000        0.664        0.720        0.773        0.634
+일의의미합계      0.664        1.000        0.743        0.619        0.741
+주인의식합계      0.720        0.743        1.000        0.788        0.750
+조직지원합계      0.773        0.619        0.788        1.000        0.611
+혁신행동합계      0.634        0.741        0.750        0.611        1.000
+
+상관 p값(양측, 비보정):
+             리더십합계 일의의미합계 주인의식합계 조직지원합계 혁신행동합계
+리더십합계            0            0            0            0            0
+일의의미합계          0            0            0            0            0
+주인의식합계          0            0            0            0            0
+조직지원합계          0            0            0            0            0
+혁신행동합계          0            0            0            0            0

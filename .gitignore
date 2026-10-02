@@ -3,3 +3,4 @@ __pycache__/
 output/*.csv
 output/*.png
 .ipynb_checkpoints/
+data_private/

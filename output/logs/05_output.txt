@@ -1,0 +1,65 @@
+=== MLR 추정 ===
+                     모형 추정법 수렴 부적절해   chisq  df   CFI   TLI RMSEA
+                    5요인    MLR TRUE    FALSE 2180.50 979 0.882 0.875 0.066
+         10요인(하위차원)    MLR TRUE    FALSE 1537.59 944 0.942 0.937 0.047
+ 대안: EL+POS 통합(4요인)    MLR TRUE    FALSE 2449.21 983 0.855 0.848 0.073
+ 대안: PO+POS 통합(4요인)    MLR TRUE    FALSE 2361.33 983 0.864 0.857 0.071
+  대안: MW+PO 통합(4요인)    MLR TRUE    FALSE 2571.66 983 0.843 0.835 0.076
+                 단일요인    MLR TRUE    FALSE 3955.18 989 0.705 0.692 0.104
+       RMSEA_CI  SRMR
+ [0.062, 0.070] 0.055
+ [0.043, 0.051] 0.043
+ [0.069, 0.077] 0.058
+ [0.067, 0.074] 0.058
+ [0.073, 0.080] 0.061
+ [0.101, 0.107] 0.079
+
+=== 5요인 대비 척도보정 카이제곱 차이검정 ===
+대안: EL+POS 통합(4요인): Δχ²(Δdf=4)=147.00, p=0.00000
+대안: PO+POS 통합(4요인): Δχ²(Δdf=4)=119.93, p=0.00000
+대안: MW+PO 통합(4요인): Δχ²(Δdf=4)=209.42, p=0.00000
+단일요인: Δχ²(Δdf=10)=881.77, p=0.00000
+
+=== WLSMV 민감도 ===
+             모형 추정법 수렴 부적절해   chisq  df   CFI   TLI RMSEA
+    5요인 [WLSMV]  WLSMV TRUE    FALSE 2345.91 979 0.795 0.783 0.105
+ 단일요인 [WLSMV]  WLSMV TRUE    FALSE 4680.82 989 0.632 0.615 0.140
+       RMSEA_CI  SRMR
+ [0.101, 0.109] 0.055
+ [0.137, 0.144] 0.090
+
+적재치 범위(5요인):
+  lhs     est.std
+1  EL 0.626–0.818
+2  IB 0.671–0.874
+3  MW 0.713–0.865
+4  PO 0.446–0.869
+5 POS 0.496–0.854
+
+잠재요인 상관(5요인 MLR):
+ lhs rhs est.std    se pvalue
+  EL  MW   0.704 0.040      0
+  EL  PO   0.770 0.032      0
+  EL POS   0.826 0.026      0
+  EL  IB   0.667 0.042      0
+  MW  PO   0.800 0.030      0
+  MW POS   0.676 0.049      0
+  MW  IB   0.779 0.033      0
+  PO POS   0.867 0.029      0
+  PO  IB   0.789 0.031      0
+ POS  IB   0.658 0.046      0
+
+CR(omega, 구성개념 수준):
+    compRelSEM(f5, return.total = FALSE)
+EL                                 0.936
+MW                                 0.942
+PO                                 0.904
+POS                                0.904
+IB                                 0.942
+AVE(구성개념 수준):
+Error in `[<-.data.frame`(`*tmp*`, , value = list(`t(semTools::AVE(f5))` = c(0.552,  : 
+  replacement element 1 is a matrix/data frame of 1 row, need 5
+Calls: print -> Math.data.frame -> [<- -> [<-.data.frame
+Execution halted
+
+[exited with code 0]
