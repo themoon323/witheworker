@@ -7,9 +7,16 @@ import { parsePlainDocument } from './importText.js';
 import { formatIsoDate, formatAmount, formatTime, todayIso } from './format.js';
 import { buildDocx } from './docx.js';
 import { docToPlainText } from './plaintext.js';
+import { buildHwpx } from './hwpx.js';
+import { extractPdfText } from './pdfText.js';
+import { PURPOSES, rewriteWithApi, rewriteWithSample, docFromAi, AiError } from './ai.js';
 
 const ARTIFACT = !!window.GONGMUN_ARTIFACT;
 const STORE_KEY = 'gongmun-editor.current';
+const KEY_STORE = 'gongmun-editor.apiKey';
+const PDFJS_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
+// 아티팩트에서 쓰는 claude.ai 기능 (파일 저장, Claude 호출). 없으면 null.
+const caps = { downloads: null, sample: null };
 const HISTORY_LIMIT = 200;
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -33,6 +40,7 @@ const state = {
   lastSel: [0, 0],
   saveTimer: 0,
   lintTimer: 0,
+  pdf: null, // 불러온 PDF { name, bytes, pdf, pages, scanned }
 };
 
 // ───────── 저장 ─────────
@@ -978,26 +986,55 @@ function download(name, data, type) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
+// 파일 저장. 아티팩트에서는 claude.ai의 저장 기능(보는 사람이 확인)을 거친다. 저장했으면 true
+async function saveFile(name, data, type) {
+  if (!ARTIFACT) {
+    download(name, data, type);
+    return true;
+  }
+  if (!caps.downloads) {
+    toast('이 화면에서는 파일을 저장할 수 없습니다.');
+    return false;
+  }
+  try {
+    await caps.downloads.save({ filename: name, data: data instanceof Uint8Array ? new Blob([data], { type }) : data });
+    return true;
+  } catch (e) {
+    if (e?.code !== 'declined') toast(e?.code === 'rejected_extension' ? '이 형식은 여기서 저장할 수 없습니다.' : '파일을 저장하지 못했습니다.');
+    return false;
+  }
+}
+
 function fileBase() {
   const t = state.doc.title.trim().replace(/[\\/:*?"<>|]/g, '').slice(0, 60);
   return t || '공문';
 }
 
-function saveJson() {
-  download(`${fileBase()}.gongmun.json`, JSON.stringify(state.doc, null, 2), 'application/json');
-  toast('문서 파일로 저장했습니다.');
+async function saveJson() {
+  if (await saveFile(`${fileBase()}.gongmun.json`, JSON.stringify(state.doc, null, 2), 'application/json')) toast('문서 파일로 저장했습니다.');
 }
 
-function exportDocx() {
+async function exportDocx() {
   const bytes = buildDocx(state.doc);
-  download(`${fileBase()}.docx`, new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }));
-  toast('DOCX로 내보냈습니다. 한글에서 [파일 > 불러오기]로 열 수 있습니다.');
+  if (await saveFile(`${fileBase()}.docx`, bytes, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')) {
+    toast('DOCX로 내보냈습니다. 워드나 한글에서 열 수 있습니다.');
+  }
+}
+
+async function exportHwpx() {
+  const bytes = buildHwpx(state.doc);
+  // 아티팩트의 저장 기능은 .hwpx 확장자를 받지 않아 .zip을 덧붙인다.
+  const name = ARTIFACT ? `${fileBase()}.hwpx.zip` : `${fileBase()}.hwpx`;
+  if (await saveFile(name, bytes, ARTIFACT ? 'application/zip' : 'application/hwp+zip')) {
+    toast(ARTIFACT ? "저장한 파일 이름 끝의 '.zip'을 지우면 한글에서 열립니다." : '한글 문서(HWPX)로 내보냈습니다.');
+  }
 }
 
 function docFromPlain(text) {
   const parsed = parsePlainDocument(text);
   const doc = blankDoc();
   doc.org = { ...state.doc.org };
+  if (parsed.org && parsed.to !== undefined) doc.org.name = parsed.org;
   doc.sender = { ...state.doc.sender };
   doc.approval = JSON.parse(JSON.stringify(state.doc.approval));
   doc.contact = { ...state.doc.contact };
@@ -1011,7 +1048,178 @@ function docFromPlain(text) {
   return doc;
 }
 
+// ───────── 외부 라이브러리 (pdf.js, Claude SDK) ─────────
+// 내려받은 편집기에는 파일 안에 들어 있고(type="text/plain"), 개발 중에는 vendor/에서, 아티팩트에서는 CDN에서 불러온다.
+const VENDOR = {
+  pdfjs: { files: ['pdf.worker.min.js', 'pdf.min.js'], ready: () => globalThis.pdfjsLib },
+  sdk: { files: ['anthropic-sdk.min.js'], ready: () => globalThis.AnthropicSDK },
+};
+
+function loadScript(url) {
+  return new Promise((resolve, reject) => {
+    const el = document.createElement('script');
+    el.src = url;
+    el.onload = resolve;
+    el.onerror = () => reject(new Error(`${url}을(를) 불러오지 못했습니다.`));
+    document.head.append(el);
+  });
+}
+
+async function ensureVendor(kind) {
+  const v = VENDOR[kind];
+  if (v.ready()) return v.ready();
+  for (const f of v.files) {
+    const inline = document.querySelector(`script[type="text/plain"][data-vendor="${f}"]`);
+    if (inline) {
+      const el = document.createElement('script');
+      el.textContent = inline.textContent;
+      document.head.append(el);
+    } else {
+      await loadScript((ARTIFACT && kind === 'pdfjs' ? PDFJS_CDN : 'vendor/') + f);
+    }
+  }
+  if (!v.ready()) throw new Error('라이브러리를 불러오지 못했습니다.');
+  return v.ready();
+}
+
+// ───────── 초안 가져오기 (PDF·AI) ─────────
+const imp = { ctl: null, busy: false };
+
+function showImportError(msg) {
+  const el = $('#import-error');
+  el.textContent = msg || '';
+  el.hidden = !msg;
+}
+
+function setImportBusy(busy) {
+  imp.busy = busy;
+  $('#ai-progress').hidden = !busy;
+  for (const id of ['import-plain', 'import-ai', 'btn-pdf']) $(`#${id}`).disabled = busy;
+}
+
+function openImport({ keepPdf = false } = {}) {
+  if (!keepPdf) clearPdf();
+  $('#import-text').value = '';
+  showImportError('');
+  setImportBusy(false);
+  try { $('#ai-key').value = localStorage.getItem(KEY_STORE) || $('#ai-key').value; $('#ai-remember').checked = !!localStorage.getItem(KEY_STORE); } catch { /* 저장소를 못 쓰면 매번 입력 */ }
+  if (!$('#dlg-import').open) $('#dlg-import').showModal();
+  $('#import-text').focus();
+}
+
+function clearPdf() {
+  state.pdf = null;
+  $('#pdf-status').textContent = '';
+  $('#pdf-status').classList.remove('warn');
+  $('#btn-pdf-clear').hidden = true;
+}
+
+async function loadPdf(file) {
+  showImportError('');
+  const status = $('#pdf-status');
+  status.classList.remove('warn');
+  status.textContent = `'${file.name}' 읽는 중…`;
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (bytes.length > 30 * 1024 * 1024) throw new Error('PDF가 30MB보다 큽니다. 필요한 쪽만 나눠서 불러오십시오.');
+    const pdfjsLib = await ensureVendor('pdfjs');
+    const pdf = await pdfjsLib.getDocument({ data: bytes.slice(), isEvalSupported: false }).promise;
+    const res = await extractPdfText(pdf);
+    const scanned = res.chars < 30 * res.pages;
+    state.pdf = { name: file.name, bytes, pdf, pages: res.pages, scanned };
+    $('#import-text').value = res.text;
+    $('#btn-pdf-clear').hidden = false;
+    if (scanned) {
+      status.classList.add('warn');
+      status.textContent = `'${file.name}' ${res.pages}쪽: 글자가 거의 없는 스캔 PDF입니다. 'AI로 공문 작성'을 누르면 Claude가 PDF 화면을 직접 읽습니다.`;
+    } else {
+      status.textContent = `'${file.name}' ${res.pages}쪽에서 글자를 뽑았습니다. 줄이 어긋난 곳이 있으면 고친 뒤 진행하십시오.`;
+    }
+  } catch (e) {
+    state.pdf = null;
+    status.textContent = '';
+    showImportError(/password/i.test(e?.name || '') ? '암호가 걸린 PDF는 열 수 없습니다.' : `PDF를 읽지 못했습니다. ${e?.message || ''}`);
+  }
+}
+
+// 스캔 PDF를 쪽 그림으로 바꾼다 (아티팩트에서 Claude에게 보낼 때).
+async function renderPdfImages(pdf, max) {
+  const blobs = [];
+  for (let p = 1; p <= Math.min(pdf.numPages, max); p++) {
+    const page = await pdf.getPage(p);
+    const viewport = page.getViewport({ scale: 1.6 });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+    blobs.push(await new Promise((resolve) => canvas.toBlob(resolve, 'image/png')));
+  }
+  return blobs;
+}
+
+function importPlain() {
+  const text = $('#import-text').value;
+  if (!text.trim()) { showImportError('초안을 붙여 넣거나 PDF를 불러오십시오.'); return; }
+  $('#dlg-import').close('plain');
+  replaceDoc(docFromPlain(text), '초안을 공문으로 구조화했습니다. 검사 결과를 확인하십시오.');
+}
+
+async function importWithAi() {
+  const draft = $('#import-text').value;
+  const sendPdf = !!state.pdf?.scanned;
+  if (!draft.trim() && !sendPdf) { showImportError('초안을 붙여 넣거나 PDF를 불러오십시오.'); return; }
+  const purpose = $('#ai-purpose').value;
+  showImportError('');
+  imp.ctl = new AbortController();
+  const { signal } = imp.ctl;
+  setImportBusy(true);
+  try {
+    let result;
+    if (ARTIFACT) {
+      if (!caps.sample) throw new AiError('unavailable', '이 화면에서는 AI 작성을 쓸 수 없습니다.');
+      let images;
+      if (sendPdf) {
+        const lim = await caps.sample.limits().catch(() => null);
+        if (!lim?.images) throw new AiError('images_unavailable', '스캔 PDF는 여기서 보낼 수 없습니다. 내려받은 편집기를 쓰거나 글자를 붙여 넣으십시오.');
+        images = await renderPdfImages(state.pdf.pdf, lim.images.maxCount);
+      }
+      result = await rewriteWithSample({ sample: caps.sample, draft, purpose, doc: state.doc, images, signal });
+    } else {
+      const apiKey = $('#ai-key').value.trim();
+      if (!apiKey) throw new AiError('no_key', 'Claude API 키를 입력하십시오. 키는 Claude Console(console.anthropic.com)에서 발급합니다.');
+      try {
+        if ($('#ai-remember').checked) localStorage.setItem(KEY_STORE, apiKey);
+        else localStorage.removeItem(KEY_STORE);
+      } catch { /* 저장소를 못 쓰면 기억하지 않는다 */ }
+      await ensureVendor('sdk');
+      result = await rewriteWithApi({ apiKey, draft, purpose, doc: state.doc, pdfBytes: sendPdf ? state.pdf.bytes : null, signal });
+    }
+    if (signal.aborted) return;
+    setImportBusy(false);
+    $('#dlg-import').close('ai');
+    replaceDoc(docFromAi(result, state.doc), 'Claude가 쓴 공문을 불러왔습니다.');
+    showNotes(result.notes);
+  } catch (e) {
+    if (e?.code !== 'cancelled') showImportError(e?.message || 'AI 작성에 실패했습니다.');
+  } finally {
+    imp.ctl = null;
+    setImportBusy(false);
+  }
+}
+
+function showNotes(notes) {
+  const list = $('#notes-list');
+  const items = notes.length ? notes : ['따로 짚을 점은 없다고 합니다. 그래도 날짜·금액·수신처를 한 번 더 확인하십시오.'];
+  list.replaceChildren(...items.map((n) => h('li', { text: n })));
+  $('#dlg-notes').showModal();
+}
+
 async function openFile(file) {
+  if (/\.pdf$/i.test(file.name) || file.type === 'application/pdf') {
+    openImport();
+    await loadPdf(file);
+    return;
+  }
   const text = await file.text();
   if (/\.json$/i.test(file.name) || text.trim().startsWith('{')) {
     try {
@@ -1103,7 +1311,24 @@ function buildStatic() {
   $('#tool-amount').value = '113560';
   // 항목 수준 목록에 실제 기호 예시
   $$('#sel-level option').forEach((o) => { const lv = Number(o.value); if (lv) o.textContent = markerFor(lv, 1); });
-  if (ARTIFACT) $$('[data-local-only]').forEach((n) => { n.hidden = true; });
+  $('#ai-purpose').replaceChildren(...PURPOSES.map(([v, label]) => h('option', { value: v, text: label })));
+  if (ARTIFACT) {
+    $$('[data-local-only]').forEach((n) => { n.hidden = true; });
+    // 저장·AI는 claude.ai 기능이 확인된 뒤에 보여 준다.
+    $$('[data-needs-save]').forEach((n) => { n.hidden = true; });
+    $('#import-ai').hidden = true;
+    $('#ai-privacy').textContent = 'AI로 공문 작성을 누르면 초안이 지금 보는 사람의 Claude 계정으로 전송되고 그 사용량이 쓰입니다. 개인정보나 비공개 정보는 지우고 보내십시오.';
+  }
+}
+
+async function initCapabilities() {
+  if (!ARTIFACT) return;
+  const use = (name) => (window.claude?.use ? window.claude.use(name).catch(() => null) : Promise.resolve(null));
+  const [downloads, sample] = await Promise.all([use('downloads'), use('sample')]);
+  caps.downloads = downloads;
+  caps.sample = sample;
+  $$('[data-needs-save]').forEach((n) => { n.hidden = !downloads; });
+  $('#import-ai').hidden = !sample;
 }
 
 function bind() {
@@ -1143,7 +1368,7 @@ function bind() {
     const k = e.key.toLowerCase();
     if (k === 'z' && inSheet) { e.preventDefault(); if (e.shiftKey) redo(); else undo(); }
     else if (k === 'y' && inSheet) { e.preventDefault(); redo(); }
-    else if (k === 's' && !ARTIFACT) { e.preventDefault(); saveJson(); }
+    else if (k === 's' && (!ARTIFACT || caps.downloads)) { e.preventDefault(); saveJson(); }
   });
 
   $('#btn-undo').addEventListener('click', undo);
@@ -1173,16 +1398,20 @@ function bind() {
     const first = state.doc.title ? state.doc.blocks.find((x) => x.type === 'item') : null;
     focusKey(first ? `block:${first.id}` : 'title', Infinity);
   });
-  $('#btn-import').addEventListener('click', () => { $('#import-text').value = ''; $('#dlg-import').showModal(); $('#import-text').focus(); });
-  $('#dlg-import').addEventListener('close', () => {
-    if ($('#dlg-import').returnValue !== 'ok') return;
-    const text = $('#import-text').value;
-    if (text.trim()) replaceDoc(docFromPlain(text), '붙여 넣은 공문을 구조화했습니다. 검사 결과를 확인하십시오.');
-  });
+  $('#btn-import').addEventListener('click', () => openImport());
+  $('#btn-pdf').addEventListener('click', () => $('#file-pdf').click());
+  $('#file-pdf').addEventListener('change', (e) => { const f = e.target.files[0]; if (f) loadPdf(f); e.target.value = ''; });
+  $('#btn-pdf-clear').addEventListener('click', () => { clearPdf(); $('#import-text').value = ''; });
+  $('#import-plain').addEventListener('click', importPlain);
+  $('#import-ai').addEventListener('click', importWithAi);
+  $('#ai-stop').addEventListener('click', () => imp.ctl?.abort());
+  // 대화상자를 닫으면(Esc 포함) 진행 중인 AI 요청도 멈춘다.
+  $('#dlg-import').addEventListener('close', () => imp.ctl?.abort());
   $('#btn-open').addEventListener('click', () => $('#file-open').click());
   $('#file-open').addEventListener('change', (e) => { const f = e.target.files[0]; if (f) openFile(f); e.target.value = ''; });
   $('#btn-save').addEventListener('click', saveJson);
   $('#btn-docx').addEventListener('click', exportDocx);
+  $('#btn-hwpx').addEventListener('click', exportHwpx);
   $('#btn-print').addEventListener('click', () => window.print());
   $('#btn-copy').addEventListener('click', copyText);
 
@@ -1226,6 +1455,7 @@ function start() {
   updateLevelSelect();
   fitZoom();
   if (document.fonts?.ready) document.fonts.ready.then(drawPageGuides);
+  initCapabilities();
 }
 
 start();

@@ -1,6 +1,6 @@
 // 소스(ES 모듈)를 하나의 HTML 파일로 묶는다. 외부 도구 없이 node만으로 동작한다.
 //   dist/gongmun-editor.html : 내려받아 더블클릭으로 여는 오프라인 편집기
-//   dist/artifact.html       : 웹 미리보기용(인쇄·파일 내려받기 버튼 숨김)
+//   dist/artifact.html       : claude.ai 아티팩트용(인쇄 숨김, 저장·AI는 claude.ai 기능 사용, pdf.js는 CDN)
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,8 +54,16 @@ function build() {
     .replace('<script type="module" src="src/app.js"></script>', () => `<script type="module">\n${js}</script>`);
   if (full.includes('src="src/') || full.includes('href="styles.css"')) throw new Error('index.html 치환에 실패했습니다.');
 
+  // 내려받는 편집기는 인터넷 없이도 PDF를 읽도록 pdf.js와 Claude SDK를 파일 안에 넣는다(필요할 때 실행).
+  const vendor = ['pdf.worker.min.js', 'pdf.min.js', 'anthropic-sdk.min.js'].map((f) => {
+    const code = readFileSync(join(root, 'vendor', f), 'utf8');
+    if (/<\/script/i.test(code)) throw new Error(`vendor/${f}에 </script가 있어 넣을 수 없습니다.`);
+    return `<script type="text/plain" data-vendor="${f}">${code}</script>`;
+  }).join('\n');
+  const offline = full.replace('</body>', () => `${vendor}\n</body>`);
+
   mkdirSync(join(root, 'dist'), { recursive: true });
-  writeFileSync(join(root, 'dist/gongmun-editor.html'), full);
+  writeFileSync(join(root, 'dist/gongmun-editor.html'), offline);
 
   // 아티팩트(웹 미리보기)는 문서 골격 없이 내용만 둔다.
   const artifact = full
@@ -66,7 +74,7 @@ function build() {
     .replace(/<body>\s*/i, '').replace(/<\/body>\s*/i, '')
     .replace('<script type="module">', '<script>window.GONGMUN_ARTIFACT = true;</script>\n<script type="module">');
   writeFileSync(join(root, 'dist/artifact.html'), artifact);
-  console.log(`dist/gongmun-editor.html (${(full.length / 1024).toFixed(1)} KB)`);
+  console.log(`dist/gongmun-editor.html (${(offline.length / 1024).toFixed(1)} KB)`);
   console.log(`dist/artifact.html (${(artifact.length / 1024).toFixed(1)} KB)`);
 }
 

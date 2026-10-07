@@ -29,19 +29,36 @@ export function linesToBlocks(lines) {
   return blocks;
 }
 
-// 문서 전체 텍스트를 해석한다. 반환: { title?, to?, via?, blocks, attachments, endFound }
+// 문서 전체 텍스트를 해석한다. 반환: { org?, title?, to?, via?, blocks, attachments, endFound }
 export function parsePlainDocument(text) {
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
   const out = { blocks: [], attachments: [], endFound: false };
   const body = [];
   let i = 0;
+  let bodyEnded = false;
   for (; i < lines.length; i++) {
     const t = lines[i].trim();
     let m;
-    if ((m = /^수\s*신\s*[:：]?\s*(.*)$/.exec(t)) && out.to === undefined) { out.to = m[1].trim(); continue; }
+    if ((m = /^수\s*신\s*[:：]?\s*(.*)$/.exec(t)) && out.to === undefined) {
+      out.to = m[1].trim();
+      // 수신 앞의 줄은 기관 표어·행정기관명이다. 본문으로 넣지 않는다.
+      const pre = body.map((l) => l.trim()).filter(Boolean);
+      if (pre.length && pre[pre.length - 1].length <= 30) out.org = pre[pre.length - 1];
+      body.length = 0;
+      continue;
+    }
     if ((m = /^\(경유\)\s*(.*)$/.exec(t))) { out.via = m[1].trim(); continue; }
     if ((m = /^제\s*목\s*[:：]?\s*(.*)$/.exec(t)) && out.title === undefined) { out.title = m[1].trim(); continue; }
     if (/^붙\s*임(\s|$)/.test(t)) break;
+    if (bodyEnded) continue;
+    if (END_RE.test(lines[i])) {
+      // '끝.' 다음은 발신명의·결문이므로 본문에서 뺀다.
+      out.endFound = true;
+      bodyEnded = true;
+      const rest = stripEnd(lines[i]);
+      if (rest.trim()) body.push(rest);
+      continue;
+    }
     body.push(lines[i]);
   }
   // 붙임

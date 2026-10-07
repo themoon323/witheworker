@@ -15,9 +15,9 @@
     <div class="brand"><span class="brand-seal" aria-hidden="true">공</span><span>공문 편집기</span></div>
     <div class="tool-group">
       <button type="button" id="btn-new" title="서식을 골라 새 문서 시작">새 문서</button>
-      <button type="button" id="btn-import" title="기존 공문 텍스트를 붙여 넣어 구조화">가져오기</button>
-      <button type="button" id="btn-open" data-local-only title="저장한 문서(.json) 또는 텍스트 파일 열기">열기</button>
-      <button type="button" id="btn-save" data-local-only title="문서 파일(.json)로 저장 (Ctrl+S)">저장</button>
+      <button type="button" id="btn-import" title="PDF·텍스트 초안을 불러와 공문으로 만들기 (AI 작성 포함)">초안 가져오기</button>
+      <button type="button" id="btn-open" title="저장한 문서(.json), 텍스트, PDF 파일 열기">열기</button>
+      <button type="button" id="btn-save" data-needs-save title="문서 파일(.json)로 저장 (Ctrl+S)">저장</button>
     </div>
     <div class="tool-group">
       <button type="button" id="btn-outdent" title="상위 항목으로 (Shift+Tab)" aria-label="내어쓰기">◂ 내어쓰기</button>
@@ -42,7 +42,8 @@
     </div>
     <div class="tool-group tool-end">
       <button type="button" id="btn-copy" title="공문 본문을 텍스트로 복사 (온-나라·한글에 붙여넣기)">텍스트 복사</button>
-      <button type="button" id="btn-docx" data-local-only title="한글·워드에서 여는 DOCX 파일로 내보내기">DOCX</button>
+      <button type="button" id="btn-hwpx" data-needs-save title="한글 문서(HWPX)로 내보내기">한글(HWPX)</button>
+      <button type="button" id="btn-docx" data-needs-save title="워드·한글에서 여는 DOCX 파일로 내보내기">DOCX</button>
       <button type="button" id="btn-print" data-local-only class="primary" title="A4로 인쇄하거나 PDF로 저장 (Ctrl+P)">인쇄·PDF</button>
     </div>
     <span id="save-status" class="save-status" aria-live="polite"></span>
@@ -230,18 +231,48 @@
 
 <dialog id="dlg-import" aria-labelledby="dlg-import-title">
   <form method="dialog" class="dlg" id="import-form">
-    <h2 id="dlg-import-title">기존 공문 가져오기</h2>
-    <p class="dlg-note">한글·워드·메일에서 복사한 공문을 붙여 넣으십시오. 수신·제목·붙임과 항목 기호(1. 가. 1) …)를 알아보고 자동 번호 항목으로 바꿉니다.</p>
-    <label class="sr-only" for="import-text">공문 텍스트</label>
-    <textarea id="import-text" rows="14" placeholder="수신  ○○도지사(○○과장)&#10;제목  ○○ 자료 제출&#10;&#10;1. 관련: ○○과-123(2026. 9. 1.)&#10;2. 위 호와 관련하여 …&#10;  가. …&#10;&#10;붙임  ○○ 자료 1부.  끝."></textarea>
+    <h2 id="dlg-import-title">초안 가져오기</h2>
+    <p class="dlg-note">PDF를 불러오거나 초안을 붙여 넣으십시오. 이미 공문 형식이면 <b>그대로 구조화</b>로 충분하고, 메모·줄글·보고서 형식이면 <b>AI로 공문 작성</b>을 누르십시오.</p>
+    <div class="import-src">
+      <button type="button" id="btn-pdf">PDF 불러오기</button>
+      <span id="pdf-status" class="pdf-status" aria-live="polite"></span>
+      <button type="button" id="btn-pdf-clear" class="link" hidden>PDF 빼기</button>
+    </div>
+    <label class="sr-only" for="import-text">초안 텍스트</label>
+    <textarea id="import-text" rows="12" placeholder="예) 다음 주 목요일 오후 2시에 시청 3층 대회의실에서 구·군 담당자 회의를 하려고 함. 참석자는 각 1명, 명단은 월요일까지 메일로 받기. 회의 자료 첨부.&#10;&#10;또는 기존 공문:&#10;수신  ○○도지사(○○과장)&#10;제목  ○○ 자료 제출&#10;1. 관련: ○○과-123(2026. 9. 1.)&#10;2. …"></textarea>
+    <div class="ai-box">
+      <div class="ai-row">
+        <label class="fld"><span>만들 공문</span><select id="ai-purpose"></select></label>
+        <label class="fld" data-local-only><span>Claude API 키 <small>AI 작성에만 필요</small></span><input id="ai-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…"></label>
+      </div>
+      <label class="check" data-local-only><input type="checkbox" id="ai-remember"> 이 브라우저에 API 키 기억</label>
+      <p class="dlg-note small" id="ai-privacy">AI로 공문 작성을 누르면 초안(스캔 PDF는 파일 자체)이 Anthropic의 Claude로 전송됩니다. 개인정보나 비공개 정보는 지우고 보내십시오. 인터넷이 되지 않는 업무망에서는 쓸 수 없습니다.</p>
+    </div>
+    <div class="ai-progress" id="ai-progress" hidden>
+      <span class="spinner" aria-hidden="true"></span>
+      <span id="ai-progress-text">Claude가 공문을 쓰고 있습니다. 보통 20초에서 1분쯤 걸립니다.</span>
+      <button type="button" id="ai-stop">중지</button>
+    </div>
+    <p class="form-error" id="import-error" role="alert" hidden></p>
     <div class="dlg-actions">
-      <button value="cancel">취소</button>
-      <button value="ok" class="primary" id="import-ok">새 문서로 가져오기</button>
+      <button value="cancel" id="import-cancel">닫기</button>
+      <button type="button" id="import-plain">그대로 구조화</button>
+      <button type="button" class="primary" id="import-ai">AI로 공문 작성</button>
     </div>
   </form>
 </dialog>
 
-<input type="file" id="file-open" accept=".json,.txt,application/json,text/plain" hidden>
+<dialog id="dlg-notes" aria-labelledby="dlg-notes-title">
+  <form method="dialog" class="dlg">
+    <h2 id="dlg-notes-title">발송 전에 확인할 점</h2>
+    <p class="dlg-note">Claude가 초안을 공문으로 다시 썼습니다. 초안에 없던 내용은 ○○로 비워 두었으니 채워 넣고, 오른쪽 검사 결과도 확인하십시오. 마음에 들지 않으면 되돌리기(Ctrl+Z)로 이전 문서로 돌아갈 수 있습니다.</p>
+    <ul class="notes-list" id="notes-list"></ul>
+    <div class="dlg-actions"><button value="ok" class="primary">확인</button></div>
+  </form>
+</dialog>
+
+<input type="file" id="file-open" accept=".json,.txt,.pdf,application/json,text/plain,application/pdf" hidden>
+<input type="file" id="file-pdf" accept=".pdf,application/pdf" hidden>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 <style id="page-style"></style>
 <script type="module" src="src/app.js"></script>
