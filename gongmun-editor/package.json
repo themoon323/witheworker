@@ -1,0 +1,12 @@
+{
+  "name": "gongmun-editor",
+  "version": "0.1.0",
+  "description": "한국 공문서 작성 특화 편집기",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "build": "node build.mjs",
+    "start": "npx http-server . -p 8080 -c-1"
+  }
+}

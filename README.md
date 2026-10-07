@@ -29,6 +29,7 @@
 ## 폴더 구조
 
 ```
+gongmun-editor/  # 공문서 작성 특화 편집기 (자세한 내용은 gongmun-editor/README.md)
 data/      # 원본 데이터 (CSV, 엑셀 등)를 여기에 넣으세요
 analysis/  # 분석 스크립트
 output/    # 분석 결과표, 그래프 저장

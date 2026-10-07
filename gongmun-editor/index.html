@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>공문 편집기</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600&family=Noto+Serif+KR:wght@400;700&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+  <header class="toolbar" role="toolbar" aria-label="문서 도구">
+    <div class="brand"><span class="brand-seal" aria-hidden="true">공</span><span>공문 편집기</span></div>
+    <div class="tool-group">
+      <button type="button" id="btn-new" title="서식을 골라 새 문서 시작">새 문서</button>
+      <button type="button" id="btn-import" title="기존 공문 텍스트를 붙여 넣어 구조화">가져오기</button>
+      <button type="button" id="btn-open" data-local-only title="저장한 문서(.json) 또는 텍스트 파일 열기">열기</button>
+      <button type="button" id="btn-save" data-local-only title="문서 파일(.json)로 저장 (Ctrl+S)">저장</button>
+    </div>
+    <div class="tool-group">
+      <button type="button" id="btn-outdent" title="상위 항목으로 (Shift+Tab)" aria-label="내어쓰기">◂ 내어쓰기</button>
+      <label class="sr-only" for="sel-level">항목 수준</label>
+      <select id="sel-level" title="항목 수준">
+        <option value="0">문단</option>
+        <option value="1">1.</option>
+        <option value="2">가.</option>
+        <option value="3">1)</option>
+        <option value="4">가)</option>
+        <option value="5">(1)</option>
+        <option value="6">(가)</option>
+        <option value="7">①</option>
+        <option value="8">㉮</option>
+      </select>
+      <button type="button" id="btn-indent" title="하위 항목으로 (Tab)" aria-label="들여쓰기">들여쓰기 ▸</button>
+      <button type="button" id="btn-table" title="현재 항목 아래에 표 넣기">표</button>
+    </div>
+    <div class="tool-group">
+      <button type="button" id="btn-undo" title="되돌리기 (Ctrl+Z)" aria-label="되돌리기">↶</button>
+      <button type="button" id="btn-redo" title="다시 실행 (Ctrl+Shift+Z)" aria-label="다시 실행">↷</button>
+    </div>
+    <div class="tool-group tool-end">
+      <button type="button" id="btn-copy" title="공문 본문을 텍스트로 복사 (온-나라·한글에 붙여넣기)">텍스트 복사</button>
+      <button type="button" id="btn-docx" data-local-only title="한글·워드에서 여는 DOCX 파일로 내보내기">DOCX</button>
+      <button type="button" id="btn-print" data-local-only class="primary" title="A4로 인쇄하거나 PDF로 저장 (Ctrl+P)">인쇄·PDF</button>
+    </div>
+    <span id="save-status" class="save-status" aria-live="polite"></span>
+  </header>
+
+  <main class="workspace">
+    <section class="desk" id="desk" aria-label="A4 문서">
+      <div class="sheet-zoom" id="sheet-zoom">
+        <article class="sheet" id="sheet"></article>
+      </div>
+    </section>
+
+    <aside class="panel" aria-label="문서 설정">
+      <nav class="tabs" role="tablist">
+        <button type="button" role="tab" data-tab="check" aria-selected="true">검사 <span class="count" id="issue-count">0</span></button>
+        <button type="button" role="tab" data-tab="info" aria-selected="false">문서 정보</button>
+        <button type="button" role="tab" data-tab="footer" aria-selected="false">결문</button>
+        <button type="button" role="tab" data-tab="tools" aria-selected="false">서식·도구</button>
+      </nav>
+
+      <div class="tab-body" data-pane="check" role="tabpanel">
+        <div class="check-summary" id="check-summary"></div>
+        <button type="button" id="btn-fix-all" class="wide">표기 오류 한꺼번에 고치기</button>
+        <ol class="issues" id="issues"></ol>
+      </div>
+
+      <div class="tab-body" data-pane="info" role="tabpanel" hidden>
+        <fieldset>
+          <legend>문서 종류</legend>
+          <div class="seg">
+            <label><input type="radio" name="kind" value="external" id="f-kind-external"> 시행문(대외 발송)</label>
+            <label><input type="radio" name="kind" value="internal" id="f-kind-internal"> 내부결재</label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>두문</legend>
+          <label class="fld"><span>기관 표어(선택)</span><input id="f-org.slogan" data-bind="org.slogan" placeholder="예: 시민이 행복한 ○○"></label>
+          <label class="fld"><span>행정기관명</span><input id="f-org.name" data-bind="org.name" placeholder="예: ○○시"></label>
+          <label class="fld"><span>수신</span><input id="f-recipient.to" data-bind="recipient.to" placeholder="예: ○○도지사(○○과장)"></label>
+          <label class="fld"><span>(경유)</span><input id="f-recipient.via" data-bind="recipient.via" placeholder="경유 기관이 있을 때만"></label>
+          <label class="fld"><span>수신자 목록 <small>‘수신자 참조’일 때, 한 줄에 하나씩</small></span><textarea id="f-recipient.list" rows="4" placeholder="○○구청장&#10;○○군수"></textarea></label>
+        </fieldset>
+        <fieldset>
+          <legend>생산등록번호(시행)</legend>
+          <div class="row3">
+            <label class="fld"><span>처리과명</span><input id="f-enforce.dept" data-bind="enforce.dept" placeholder="총무과"></label>
+            <label class="fld"><span>일련번호</span><input id="f-enforce.serial" data-bind="enforce.serial" inputmode="numeric" placeholder="1234"></label>
+            <label class="fld"><span>시행일</span><input id="f-enforce.date" data-bind="enforce.date" type="date"></label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>접수 <small>받은 기관에서 적음</small></legend>
+          <div class="row3">
+            <label class="fld"><span>처리과명</span><input id="f-receive.dept" data-bind="receive.dept"></label>
+            <label class="fld"><span>일련번호</span><input id="f-receive.serial" data-bind="receive.serial" inputmode="numeric"></label>
+            <label class="fld"><span>접수일</span><input id="f-receive.date" data-bind="receive.date" type="date"></label>
+          </div>
+        </fieldset>
+      </div>
+
+      <div class="tab-body" data-pane="footer" role="tabpanel" hidden>
+        <fieldset>
+          <legend>발신명의</legend>
+          <label class="fld"><span>발신명의</span><input id="f-sender.name" data-bind="sender.name" placeholder="예: ○○시장"></label>
+          <label class="fld"><span>관인 표시</span>
+            <select id="f-sender.seal" data-bind="sender.seal">
+              <option value="omit">관인생략</option>
+              <option value="signOmit">서명생략</option>
+              <option value="stamp">관인 날인 자리</option>
+              <option value="none">표시 안 함</option>
+            </select>
+          </label>
+        </fieldset>
+        <fieldset id="approval" tabindex="-1">
+          <legend>결재 라인</legend>
+          <div class="person-row"><span class="role">기안자</span>
+            <input id="f-approval.drafter.title" data-bind="approval.drafter.title" aria-label="기안자 직위" placeholder="직위">
+            <input id="f-approval.drafter.name" data-bind="approval.drafter.name" aria-label="기안자 이름" placeholder="이름">
+          </div>
+          <div id="reviewers"></div>
+          <button type="button" class="ghost" id="btn-add-reviewer">+ 검토자 추가</button>
+          <div class="person-row"><span class="role">결재권자</span>
+            <input id="f-approval.approver.title" data-bind="approval.approver.title" aria-label="결재권자 직위" placeholder="직위">
+            <input id="f-approval.approver.name" data-bind="approval.approver.name" aria-label="결재권자 이름" placeholder="이름">
+          </div>
+          <div class="row2">
+            <label class="fld"><span>전결·대결</span>
+              <select id="f-approval.approver.mark" data-bind="approval.approver.mark">
+                <option value="">없음(직접 결재)</option>
+                <option value="전결">전결</option>
+                <option value="대결">대결</option>
+              </select>
+            </label>
+            <label class="fld"><span>결재일</span><input id="f-approval.approver.date" data-bind="approval.approver.date" type="date"></label>
+          </div>
+          <div id="cooperators"></div>
+          <button type="button" class="ghost" id="btn-add-cooperator">+ 협조자 추가</button>
+        </fieldset>
+        <fieldset>
+          <legend>연락처</legend>
+          <div class="row2">
+            <label class="fld"><span>우편번호</span><input id="f-contact.zip" data-bind="contact.zip" inputmode="numeric" placeholder="30128"></label>
+            <label class="fld"><span>누리집</span><input id="f-contact.homepage" data-bind="contact.homepage" placeholder="www.○○.go.kr"></label>
+          </div>
+          <label class="fld"><span>도로명주소</span><input id="f-contact.address" data-bind="contact.address" placeholder="○○시 ○○로 123 ○○청사 4층"></label>
+          <div class="row2">
+            <label class="fld"><span>전화번호</span><input id="f-contact.phone" data-bind="contact.phone" inputmode="tel" placeholder="044-000-0000"></label>
+            <label class="fld"><span>팩스번호</span><input id="f-contact.fax" data-bind="contact.fax" inputmode="tel"></label>
+          </div>
+          <label class="fld"><span>공무원 전자우편</span><input id="f-contact.email" data-bind="contact.email" inputmode="email" placeholder="hong@korea.kr"></label>
+        </fieldset>
+        <fieldset>
+          <legend>공개 구분</legend>
+          <div class="row2">
+            <label class="fld"><span>구분</span>
+              <select id="f-contact.disclosure" data-bind="contact.disclosure">
+                <option value="공개">공개</option>
+                <option value="부분공개">부분공개</option>
+                <option value="비공개">비공개</option>
+              </select>
+            </label>
+            <label class="fld"><span>근거(정보공개법 제9조제1항)</span><select id="f-contact.disclosureReason" data-bind="contact.disclosureReason"></select></label>
+          </div>
+        </fieldset>
+      </div>
+
+      <div class="tab-body" data-pane="tools" role="tabpanel" hidden>
+        <fieldset>
+          <legend>표기 도우미 <small>커서 위치에 넣습니다</small></legend>
+          <div class="helper">
+            <label class="fld"><span>날짜</span><input type="date" id="tool-date"></label>
+            <label class="check"><input type="checkbox" id="tool-weekday" checked> 요일</label>
+            <output id="tool-date-out" class="preview"></output>
+            <button type="button" id="tool-date-insert">넣기</button>
+          </div>
+          <div class="helper">
+            <label class="fld"><span>시각</span><input type="time" id="tool-time" step="300"></label>
+            <output id="tool-time-out" class="preview"></output>
+            <button type="button" id="tool-time-insert">넣기</button>
+          </div>
+          <div class="helper">
+            <label class="fld"><span>금액(원)</span><input id="tool-amount" inputmode="numeric" placeholder="113560"></label>
+            <output id="tool-amount-out" class="preview"></output>
+            <button type="button" id="tool-amount-insert">넣기</button>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>용지·글자</legend>
+          <div class="row2">
+            <label class="fld"><span>글꼴</span><select id="f-settings.font" data-bind="settings.font"></select></label>
+            <label class="fld"><span>글자 크기(pt)</span><input id="f-settings.size" data-bind="settings.size" type="number" min="9" max="20" step="0.5"></label>
+          </div>
+          <label class="fld"><span>줄 간격(%)</span><input id="f-settings.lineHeight" data-bind="settings.lineHeight" type="number" min="100" max="250" step="10"></label>
+          <div class="margins">
+            <span class="margins-title">여백(mm) <small>기본: 위 30, 왼쪽 20, 오른쪽·아래 15</small></span>
+            <label class="fld"><span>위</span><input id="f-settings.margins.top" data-bind="settings.margins.top" type="number" min="5" max="60"></label>
+            <label class="fld"><span>왼쪽</span><input id="f-settings.margins.left" data-bind="settings.margins.left" type="number" min="5" max="60"></label>
+            <label class="fld"><span>오른쪽</span><input id="f-settings.margins.right" data-bind="settings.margins.right" type="number" min="5" max="60"></label>
+            <label class="fld"><span>아래</span><input id="f-settings.margins.bottom" data-bind="settings.margins.bottom" type="number" min="5" max="60"></label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>단축키</legend>
+          <dl class="keys">
+            <dt><kbd>Enter</kbd></dt><dd>같은 수준의 다음 항목 (빈 항목에서 누르면 상위로)</dd>
+            <dt><kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd></dt><dd>하위 항목 / 상위 항목</dd>
+            <dt><kbd>Shift</kbd>+<kbd>Enter</kbd></dt><dd>항목 안에서 줄 바꿈</dd>
+            <dt><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>↑</kbd><kbd>↓</kbd></dt><dd>항목 위아래로 옮기기</dd>
+            <dt><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></dt><dd>되돌리기 / 다시 실행</dd>
+          </dl>
+        </fieldset>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<dialog id="dlg-templates" aria-labelledby="dlg-templates-title">
+  <form method="dialog" class="dlg">
+    <h2 id="dlg-templates-title">새 문서</h2>
+    <p class="dlg-note">서식을 고르면 지금 문서가 바뀝니다. 바꾼 뒤에도 되돌리기(Ctrl+Z)로 돌아올 수 있습니다.</p>
+    <div class="template-grid" id="template-grid"></div>
+    <div class="dlg-actions"><button value="cancel">닫기</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-import" aria-labelledby="dlg-import-title">
+  <form method="dialog" class="dlg" id="import-form">
+    <h2 id="dlg-import-title">기존 공문 가져오기</h2>
+    <p class="dlg-note">한글·워드·메일에서 복사한 공문을 붙여 넣으십시오. 수신·제목·붙임과 항목 기호(1. 가. 1) …)를 알아보고 자동 번호 항목으로 바꿉니다.</p>
+    <label class="sr-only" for="import-text">공문 텍스트</label>
+    <textarea id="import-text" rows="14" placeholder="수신  ○○도지사(○○과장)&#10;제목  ○○ 자료 제출&#10;&#10;1. 관련: ○○과-123(2026. 9. 1.)&#10;2. 위 호와 관련하여 …&#10;  가. …&#10;&#10;붙임  ○○ 자료 1부.  끝."></textarea>
+    <div class="dlg-actions">
+      <button value="cancel">취소</button>
+      <button value="ok" class="primary" id="import-ok">새 문서로 가져오기</button>
+    </div>
+  </form>
+</dialog>
+
+<input type="file" id="file-open" accept=".json,.txt,application/json,text/plain" hidden>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<style id="page-style"></style>
+<script type="module" src="src/app.js"></script>
+</body>
+</html>
