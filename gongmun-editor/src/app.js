@@ -9,7 +9,15 @@ import { buildDocx } from './docx.js';
 import { docToPlainText } from './plaintext.js';
 import { buildHwpx } from './hwpx.js';
 import { extractPdfText } from './pdfText.js';
-import { PURPOSES, rewriteWithApi, rewriteWithSample, docFromAi, AiError } from './ai.js';
+import {
+  PURPOSES, REPORT_PURPOSES, rewriteWithApi, rewriteWithSample, rewriteReportWithApi, rewriteReportWithSample, docFromAi, AiError,
+} from './ai.js';
+import { normalizeReport, rblock, stripInline } from './report.js';
+import { markdownToReport } from './markdown.js';
+import { buildReportHwpx, reportToPlainText } from './reportHwpx.js';
+import { createReportEditor, typeOptions } from './reportEditor.js';
+import { REPORT_TEMPLATES } from './reportTemplates.js';
+import { formatDate } from './format.js';
 
 const ARTIFACT = !!window.GONGMUN_ARTIFACT;
 const STORE_KEY = 'gongmun-editor.current';
@@ -30,8 +38,28 @@ const EDITABLE = (() => {
   } catch { return 'true'; }
 })();
 
+// 공문(kind: external·internal)과 보고서(kind: report)를 모두 다룬다.
+function normalizeAny(raw) {
+  if (raw?.kind !== 'report') return normalizeDoc(raw);
+  const doc = normalizeReport(raw);
+  if (!doc.blocks.length) doc.blocks.push(rblock.item(1, ''));
+  return doc;
+}
+
+const isReport = () => state.doc.kind === 'report';
+
+function todayText(now = new Date()) {
+  return formatDate(now.getFullYear(), now.getMonth() + 1, now.getDate());
+}
+
+function freshReport() {
+  const doc = REPORT_TEMPLATES[0].make();
+  doc.meta.date = todayText();
+  return doc;
+}
+
 const state = {
-  doc: loadStored() || TEMPLATES.find((t) => t.id === 'meeting').make(),
+  doc: loadStored() || freshReport(),
   past: [],
   future: [],
   issues: [],
@@ -43,11 +71,18 @@ const state = {
   pdf: null, // 불러온 PDF { name, bytes, pdf, pages, scanned }
 };
 
+// 보고서·제안서 모드 (src/reportEditor.js)
+const R = createReportEditor({
+  state, $, $$, h, editable, readText, writeText, getSel, setSel, focusKey, caretOnFirstLine, caretOnLastLine,
+  remember, changed: (o) => changed(o), toast: (m) => toast(m), selectTab: (t) => selectTab(t), insertAtCaret: (el, t) => insertAtCaret(el, t),
+  onInput: (el) => onEditableInput(el, 'edit'),
+});
+
 // ───────── 저장 ─────────
 function loadStored() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
-    return raw ? normalizeDoc(JSON.parse(raw)) : null;
+    return raw ? normalizeAny(JSON.parse(raw)) : null;
   } catch { return null; }
 }
 
@@ -87,7 +122,7 @@ function changed({ sheet = false, panel = false } = {}) {
 function undo() {
   if (!state.past.length) return;
   state.future.push(JSON.stringify(state.doc));
-  state.doc = normalizeDoc(JSON.parse(state.past.pop()));
+  state.doc = normalizeAny(JSON.parse(state.past.pop()));
   state.lastTyping = 0;
   changed({ sheet: true, panel: true });
   updateUndoButtons();
@@ -96,7 +131,7 @@ function undo() {
 function redo() {
   if (!state.future.length) return;
   state.past.push(JSON.stringify(state.doc));
-  state.doc = normalizeDoc(JSON.parse(state.future.pop()));
+  state.doc = normalizeAny(JSON.parse(state.future.pop()));
   state.lastTyping = 0;
   changed({ sheet: true, panel: true });
   updateUndoButtons();
@@ -109,7 +144,7 @@ function updateUndoButtons() {
 
 function replaceDoc(doc, message) {
   remember();
-  state.doc = normalizeDoc(doc);
+  state.doc = normalizeAny(doc);
   changed({ sheet: true, panel: true });
   if (message) toast(message);
 }
@@ -255,11 +290,38 @@ function applyPageStyle() {
   $('#page-style').textContent = `@page { size: A4; margin: ${m.top}mm ${m.right}mm ${m.bottom}mm ${m.left}mm; }`;
 }
 
+function syncMode() {
+  const report = isReport();
+  const was = document.body.classList.contains('mode-report');
+  document.body.classList.toggle('mode-report', report);
+  if (was !== report) {
+    // 지금 모드에 없는 탭이 열려 있으면 검사 탭으로
+    const cur = $('.tabs [aria-selected="true"]');
+    if (cur && cur.dataset.mode && cur.dataset.mode !== (report ? 'report' : 'gongmun')) selectTab('check');
+    $('#issues').replaceChildren();
+  }
+}
+
 function renderSheet() {
   const doc = state.doc;
   const sheet = $('#sheet');
   const active = document.activeElement?.dataset?.key && sheet.contains(document.activeElement)
     ? { key: document.activeElement.dataset.key, sel: getSel(document.activeElement) } : null;
+  syncMode();
+  sheet.className = 'sheet';
+  sheet.removeAttribute('style');
+  if (isReport()) {
+    sheet.replaceChildren();
+    R.render(sheet);
+    if (active) {
+      const el = $(`[data-key="${CSS.escape(active.key)}"]`);
+      if (el) setSel(el, ...active.sel);
+    }
+    markIssues();
+    updateLevelSelect();
+    requestAnimationFrame(drawPageGuides);
+    return;
+  }
   applyPageStyle();
   sheet.replaceChildren();
   const internal = doc.kind === 'internal';
@@ -369,6 +431,11 @@ function renderFooter() {
 
 // 끝 표시와 붙임 번호처럼 텍스트에 따라 바뀌는 부분만 다시 그린다 (타자 중에는 편집 칸을 건드리지 않는다).
 function refreshDynamic() {
+  if (isReport()) {
+    R.refresh();
+    requestAnimationFrame(drawPageGuides);
+    return;
+  }
   const doc = state.doc;
   const mark = endMark(doc);
   $$('#body .blk.item .tx').forEach((tx) => {
@@ -409,7 +476,9 @@ function drawPageGuides() {
   const sheet = $('#sheet');
   $$('.page-guide', sheet).forEach((g) => g.remove());
   const pxPerMm = 96 / 25.4;
-  const m = state.doc.settings.margins;
+  const sm = state.doc.settings.margins;
+  // 보고서는 머리말·꼬리말 영역만큼 본문이 줄어든다.
+  const m = isReport() ? { top: sm.top + sm.header, bottom: sm.bottom + sm.footer } : sm;
   const contentPx = (297 - m.top - m.bottom) * pxPerMm;
   const topPx = m.top * pxPerMm;
   const last = sheet.lastElementChild;
@@ -563,6 +632,7 @@ function insertAtCaret(el, str) {
 
 // ───────── 입력 처리 ─────────
 function setFieldByKey(key, text) {
+  if (isReport()) { R.setField(key, text); return; }
   const doc = state.doc;
   const info = keyInfo(key);
   if (info.kind === 'block') { const b = blockById(info.id); if (b) b.text = text; return; }
@@ -576,7 +646,8 @@ function onEditableInput(el, kind = 'typing') {
   remember(kind);
   const key = el.dataset.key;
   setFieldByKey(key, readText(el));
-  if (key.startsWith('org.') || key.startsWith('recipient.') || key === 'title' || key.startsWith('sender.')) syncPanelField(key);
+  if (key.startsWith('r:meta:')) syncPanelField(`meta.${key.slice(7)}`);
+  else if (!isReport() && (key.startsWith('org.') || key.startsWith('recipient.') || key === 'title' || key.startsWith('sender.'))) syncPanelField(key);
   changed();
 }
 
@@ -584,6 +655,7 @@ function handleKeydown(e) {
   const el = e.target.closest?.('[data-key]');
   if (!el || !$('#sheet').contains(el)) return;
   if (e.isComposing || e.keyCode === 229) return; // 한글 조합 중에는 손대지 않는다.
+  if (isReport()) { R.keydown(e, el); return; }
   const key = el.dataset.key;
   const info = keyInfo(key);
 
@@ -742,6 +814,13 @@ function handlePaste(e) {
   e.preventDefault();
   const text = (e.clipboardData?.getData('text/plain') || '').replace(/\r\n?/g, '\n');
   if (!text) return;
+  if (isReport()) {
+    if (R.paste(el, text)) return;
+    const k = R.keyInfo(el.dataset.key)?.kind;
+    const oneLine = k === 'meta' || k === 'boxTitle' || k === 'caption' || k === 'unit';
+    insertAtCaret(el, oneLine ? text.replace(/\s*\n\s*/g, ' ').trim() : text.replace(/\n+$/, ''));
+    return;
+  }
   const info = keyInfo(el.dataset.key);
   const multi = text.replace(/\n+$/, '').includes('\n');
   if (info.kind === 'block' && multi) {
@@ -760,7 +839,7 @@ function scheduleLint() {
 }
 
 function runLint() {
-  state.issues = lintDoc(state.doc);
+  state.issues = isReport() ? R.lint() : lintDoc(state.doc);
   renderIssues();
   markIssues();
 }
@@ -768,6 +847,7 @@ function runLint() {
 const SEV_LABEL = { error: '오류', warn: '표기', info: '권장' };
 
 function whereLabel(loc) {
+  if (isReport()) return R.where(loc);
   const doc = state.doc;
   switch (loc.kind) {
     case 'title': return '제목';
@@ -802,7 +882,7 @@ function renderIssues() {
   badge.classList.toggle('has-error', counts.error > 0);
   const summary = $('#check-summary');
   summary.replaceChildren();
-  if (!issues.length) summary.append(h('span', { class: 'chip ok', text: '편람 기준에 맞습니다' }));
+  if (!issues.length) summary.append(h('span', { class: 'chip ok', text: isReport() ? '작성 기준에 맞습니다' : '편람 기준에 맞습니다' }));
   for (const sev of ['error', 'warn', 'info']) {
     if (counts[sev]) summary.append(h('span', { class: `chip ${sev}`, text: `${SEV_LABEL[sev]} ${counts[sev]}` }));
   }
@@ -810,7 +890,9 @@ function renderIssues() {
   const list = $('#issues');
   list.replaceChildren();
   if (!issues.length) {
-    list.append(h('li', { class: 'empty-state', text: '고칠 곳이 없습니다. 인쇄하거나 내보내기 전에 결문(결재 라인·연락처)을 한 번 더 확인하십시오.' }));
+    list.append(h('li', { class: 'empty-state', text: isReport()
+      ? '고칠 곳이 없습니다. 결론이 앞에 있는지, 요청 사항과 정책대상 규모·소요 예산이 빠지지 않았는지 한 번 더 확인하십시오.'
+      : '고칠 곳이 없습니다. 인쇄하거나 내보내기 전에 결문(결재 라인·연락처)을 한 번 더 확인하십시오.' }));
     return;
   }
   for (const it of issues) {
@@ -829,6 +911,7 @@ function renderIssues() {
 
 function markIssues() {
   $$('#sheet [data-issue]').forEach((n) => n.removeAttribute('data-issue'));
+  if (isReport()) { R.markIssues(state.issues); return; }
   const rank = { error: 3, warn: 2, info: 1 };
   const worst = new Map();
   for (const it of state.issues) {
@@ -858,6 +941,7 @@ function keyForLoc(loc) {
 }
 
 function gotoIssue(it) {
+  if (isReport()) { R.gotoIssue(it); return; }
   if (it.loc.kind === 'meta') {
     const field = it.loc.field;
     const tab = field.startsWith('sender') || field.startsWith('contact') || field === 'approval' ? 'footer' : 'info';
@@ -874,9 +958,9 @@ function gotoIssue(it) {
 
 function fixIssue(it) {
   remember();
-  const ok = applyFix(state.doc, it);
+  const ok = isReport() ? R.applyFix(it) : applyFix(state.doc, it);
   if (!ok) { state.past.pop(); toast('문서가 바뀌어 고칠 수 없습니다. 다시 검사합니다.'); runLint(); return; }
-  changed({ sheet: true, panel: it.fix.type === 'set' });
+  changed({ sheet: true, panel: it.fix.type === 'set' || it.loc.kind === 'meta' });
   runLint();
 }
 
@@ -885,10 +969,11 @@ function fixAll() {
   let n = 0;
   const skipped = new Set();
   for (let guard = 0; guard < 300; guard++) {
-    const it = lintDoc(state.doc).find((x) => x.fix && x.severity !== 'info' && !skipped.has(`${x.rule}|${locKey(x.loc)}|${x.found}`));
+    const all = isReport() ? R.lint() : lintDoc(state.doc);
+    const it = all.find((x) => x.fix && x.severity !== 'info' && !skipped.has(`${x.rule}|${JSON.stringify(x.loc)}|${x.found}`));
     if (!it) break;
-    if (applyFix(state.doc, it)) n++;
-    else skipped.add(`${it.rule}|${locKey(it.loc)}|${it.found}`);
+    if (isReport() ? R.applyFix(it) : applyFix(state.doc, it)) n++;
+    else skipped.add(`${it.rule}|${JSON.stringify(it.loc)}|${it.found}`);
   }
   if (!n) { state.past.pop(); return; }
   changed({ sheet: true, panel: true });
@@ -932,11 +1017,19 @@ function personRows(container, list, role, path) {
 
 function syncPanel() {
   const doc = state.doc;
+  syncMode();
   $$('[data-bind]').forEach((input) => {
     if (input.closest('#reviewers, #cooperators')) return;
     const v = getPath(doc, input.dataset.bind);
-    input.value = v ?? '';
+    if (input.type === 'checkbox') input.checked = !!v;
+    else input.value = v ?? '';
   });
+  if (isReport()) {
+    $('#f-r-symbols').value = doc.settings.symbols.join(' ');
+    updateUndoButtons();
+    updateLevelSelect();
+    return;
+  }
   $(`#f-kind-${doc.kind}`).checked = true;
   $('#f-recipient\\.list').value = doc.recipient.list.join('\n');
   personRows($('#reviewers'), doc.approval.reviewers, '검토자', 'approval.reviewers');
@@ -962,10 +1055,15 @@ function onPanelInput(e) {
     changed({ sheet: true });
     return;
   }
+  if (t.id === 'f-r-symbols') {
+    const sy = t.value.split(/[\s,]+/).filter(Boolean);
+    if (sy.length) { remember('typing'); doc.settings.symbols = sy; changed({ sheet: true }); }
+    return;
+  }
   const path = t.dataset.bind;
   if (!path) return;
-  remember(t.tagName === 'SELECT' || t.type === 'date' ? 'edit' : 'typing');
-  const value = t.type === 'number' ? (t.value === '' ? getPath(doc, path) : Number(t.value)) : t.value;
+  remember(t.tagName === 'SELECT' || t.type === 'date' || t.type === 'checkbox' ? 'edit' : 'typing');
+  const value = t.type === 'checkbox' ? t.checked : t.type === 'number' ? (t.value === '' ? getPath(doc, path) : Number(t.value)) : t.value;
   setPath(doc, path, value);
   if (path === 'contact.disclosure') {
     if (value === '공개') doc.contact.disclosureReason = '';
@@ -1006,7 +1104,7 @@ async function saveFile(name, data, type) {
 }
 
 function fileBase() {
-  const t = state.doc.title.trim().replace(/[\\/:*?"<>|]/g, '').slice(0, 60);
+  const t = (isReport() ? stripInline(state.doc.meta.title) : state.doc.title).trim().replace(/[\\/:*?"<>|]/g, '').slice(0, 60);
   return t || '공문';
 }
 
@@ -1022,7 +1120,7 @@ async function exportDocx() {
 }
 
 async function exportHwpx() {
-  const bytes = buildHwpx(state.doc);
+  const bytes = isReport() ? buildReportHwpx(state.doc) : buildHwpx(state.doc);
   // 아티팩트의 저장 기능은 .hwpx 확장자를 받지 않아 .zip을 덧붙인다.
   const name = ARTIFACT ? `${fileBase()}.hwpx.zip` : `${fileBase()}.hwpx`;
   if (await saveFile(name, bytes, ARTIFACT ? 'application/zip' : 'application/hwp+zip')) {
@@ -1030,7 +1128,20 @@ async function exportHwpx() {
   }
 }
 
+// 보고서 모드: 마크다운·보고서 기호를 읽어 새 보고서를 만든다. 서식 설정과 부서는 지금 문서의 것을 이어 쓴다.
+function reportFromText(text) {
+  const { doc } = markdownToReport(text);
+  const cur = state.doc;
+  if (cur.kind === 'report') {
+    doc.settings = JSON.parse(JSON.stringify({ ...cur.settings, symbols: doc.settings.symbols }));
+    if (!doc.meta.dept) doc.meta.dept = cur.meta.dept;
+  }
+  if (!doc.meta.date) doc.meta.date = todayText();
+  return doc;
+}
+
 function docFromPlain(text) {
+  if (isReport()) return reportFromText(text);
   const parsed = parsePlainDocument(text);
   const doc = blankDoc();
   doc.org = { ...state.doc.org };
@@ -1099,6 +1210,10 @@ function setImportBusy(busy) {
 
 function openImport({ keepPdf = false } = {}) {
   if (!keepPdf) clearPdf();
+  const list = isReport() ? REPORT_PURPOSES : PURPOSES;
+  $('#ai-purpose').replaceChildren(...list.map(([v, label]) => h('option', { value: v, text: label })));
+  $('#import-ai').textContent = isReport() ? 'AI로 보고서 작성' : 'AI로 공문 작성';
+  $('#dlg-import-title').textContent = isReport() ? '초안 가져오기 (보고서·제안서)' : '초안 가져오기 (공문)';
   $('#import-text').value = '';
   showImportError('');
   setImportBusy(false);
@@ -1183,7 +1298,9 @@ async function importWithAi() {
         if (!lim?.images) throw new AiError('images_unavailable', '스캔 PDF는 여기서 보낼 수 없습니다. 내려받은 편집기를 쓰거나 글자를 붙여 넣으십시오.');
         images = await renderPdfImages(state.pdf.pdf, lim.images.maxCount);
       }
-      result = await rewriteWithSample({ sample: caps.sample, draft, purpose, doc: state.doc, images, signal });
+      result = isReport()
+        ? await rewriteReportWithSample({ sample: caps.sample, draft, purpose, doc: state.doc, images, signal })
+        : await rewriteWithSample({ sample: caps.sample, draft, purpose, doc: state.doc, images, signal });
     } else {
       const apiKey = $('#ai-key').value.trim();
       if (!apiKey) throw new AiError('no_key', 'Claude API 키를 입력하십시오. 키는 Claude Console(console.anthropic.com)에서 발급합니다.');
@@ -1192,12 +1309,14 @@ async function importWithAi() {
         else localStorage.removeItem(KEY_STORE);
       } catch { /* 저장소를 못 쓰면 기억하지 않는다 */ }
       await ensureVendor('sdk');
-      result = await rewriteWithApi({ apiKey, draft, purpose, doc: state.doc, pdfBytes: sendPdf ? state.pdf.bytes : null, signal });
+      const args = { apiKey, draft, purpose, doc: state.doc, pdfBytes: sendPdf ? state.pdf.bytes : null, signal };
+      result = isReport() ? await rewriteReportWithApi(args) : await rewriteWithApi(args);
     }
     if (signal.aborted) return;
     setImportBusy(false);
     $('#dlg-import').close('ai');
-    replaceDoc(docFromAi(result, state.doc), 'Claude가 쓴 공문을 불러왔습니다.');
+    if (isReport()) replaceDoc(reportFromText(result.markdown), 'Claude가 쓴 보고서를 불러왔습니다.');
+    else replaceDoc(docFromAi(result, state.doc), 'Claude가 쓴 공문을 불러왔습니다.');
     showNotes(result.notes);
   } catch (e) {
     if (e?.code !== 'cancelled') showImportError(e?.message || 'AI 작성에 실패했습니다.');
@@ -1221,6 +1340,10 @@ async function openFile(file) {
     return;
   }
   const text = await file.text();
+  if (/\.(md|markdown)$/i.test(file.name)) {
+    replaceDoc(reportFromText(text), `'${file.name}'을(를) 보고서로 열었습니다.`);
+    return;
+  }
   if (/\.json$/i.test(file.name) || text.trim().startsWith('{')) {
     try {
       replaceDoc(JSON.parse(text), `'${file.name}'을(를) 열었습니다.`);
@@ -1233,7 +1356,7 @@ async function openFile(file) {
 }
 
 async function copyText() {
-  const text = docToPlainText(state.doc);
+  const text = isReport() ? reportToPlainText(state.doc) : docToPlainText(state.doc);
   try {
     await navigator.clipboard.writeText(text);
     toast('본문을 복사했습니다. 온-나라·한글에 붙여 넣으십시오.');
@@ -1283,9 +1406,26 @@ function toast(msg) {
   toastTimer = setTimeout(() => { t.hidden = true; }, 3200);
 }
 
+let levelOptionsSig = '';
 function updateLevelSelect() {
-  const info = keyInfo(state.lastKey);
   const sel = $('#sel-level');
+  const sig = isReport() ? `r:${state.doc.settings.symbols.join('')}` : 'g';
+  if (sig !== levelOptionsSig) {
+    levelOptionsSig = sig;
+    const opts = isReport() ? typeOptions(state.doc.settings.symbols) : [['0', '문단'], ...[1, 2, 3, 4, 5, 6, 7, 8].map((l) => [String(l), markerFor(l, 1)])];
+    sel.replaceChildren(...opts.map(([v, label]) => h('option', { value: v, text: label })));
+    sel.title = isReport() ? '줄 종류' : '항목 수준';
+  }
+  if (isReport()) {
+    const info = R.keyInfo(state.lastKey);
+    const code = info?.kind === 'block' ? R.typeOf(info.id) : '';
+    sel.disabled = !code;
+    $('#btn-indent').disabled = !code;
+    $('#btn-outdent').disabled = !code;
+    if (code) sel.value = code;
+    return;
+  }
+  const info = keyInfo(state.lastKey);
   const b = info?.kind === 'block' ? blockById(info.id) : null;
   sel.disabled = !b;
   $('#btn-indent').disabled = !b;
@@ -1305,7 +1445,11 @@ function trackFocus() {
 function buildStatic() {
   $('#f-settings\\.font').replaceChildren(...FONTS.map((f) => h('option', { value: f.id, text: f.label })));
   $('#f-contact\\.disclosureReason').replaceChildren(h('option', { value: '', text: '선택' }), ...DISCLOSURE_REASONS.map((r) => h('option', { value: r, text: r })));
-  $('#template-grid').replaceChildren(...TEMPLATES.map((t) => h('button', { type: 'button', 'data-template': t.id }, h('b', { text: t.name }), h('span', { text: t.desc }))));
+  const card = (t) => h('button', { type: 'button', 'data-template': t.id }, h('b', { text: t.name }), h('span', { text: t.desc }));
+  $('#template-grid').replaceChildren(
+    h('h3', { class: 'tpl-group', text: '보고서·제안서' }), ...REPORT_TEMPLATES.map(card),
+    h('h3', { class: 'tpl-group', text: '공문 (기안문·시행문)' }), ...TEMPLATES.map(card),
+  );
   $('#tool-date').value = todayIso();
   $('#tool-time').value = '14:00';
   $('#tool-amount').value = '113560';
@@ -1340,6 +1484,7 @@ function bind() {
   sheet.addEventListener('keydown', handleKeydown);
   sheet.addEventListener('paste', handlePaste);
   sheet.addEventListener('click', (e) => {
+    if (isReport() && R.click(e)) return;
     const act = e.target.closest('[data-act]');
     if (!act) return;
     const a = act.dataset.act;
@@ -1359,7 +1504,8 @@ function bind() {
   // 표 조작 버튼을 눌러도 칸의 커서 위치를 잃지 않도록
   sheet.addEventListener('mousedown', (e) => { if (e.target.closest('.tbl-ctrl')) e.preventDefault(); });
   document.addEventListener('selectionchange', trackFocus);
-  sheet.addEventListener('focusin', trackFocus);
+  sheet.addEventListener('focusin', (e) => { if (isReport()) R.focusIn(e.target); trackFocus(); });
+  sheet.addEventListener('focusout', (e) => { if (isReport()) R.focusOut(e.target); });
 
   document.addEventListener('keydown', (e) => {
     const mod = e.ctrlKey || e.metaKey;
@@ -1373,21 +1519,43 @@ function bind() {
 
   $('#btn-undo').addEventListener('click', undo);
   $('#btn-redo').addEventListener('click', redo);
-  $('#btn-indent').addEventListener('click', () => { const i = keyInfo(state.lastKey); if (i?.kind === 'block') { setLevel(i.id, blockById(i.id).level + 1); focusKey(state.lastKey, ...state.lastSel); } });
-  $('#btn-outdent').addEventListener('click', () => { const i = keyInfo(state.lastKey); if (i?.kind === 'block') { setLevel(i.id, blockById(i.id).level - 1); focusKey(state.lastKey, ...state.lastSel); } });
-  $('#sel-level').addEventListener('change', (e) => { const i = keyInfo(state.lastKey); if (i?.kind === 'block') { setLevel(i.id, Number(e.target.value)); focusKey(state.lastKey, ...state.lastSel); } });
-  $('#btn-table').addEventListener('click', insertTable);
-  for (const id of ['btn-indent', 'btn-outdent', 'btn-table']) $(`#${id}`).addEventListener('mousedown', (e) => e.preventDefault());
+  const reportShift = (dir) => { const i = R.keyInfo(state.lastKey); if (i?.kind === 'block') { R.shift(i.id, dir); focusKey(state.lastKey, ...state.lastSel); } };
+  $('#btn-indent').addEventListener('click', () => { if (isReport()) { reportShift(1); return; } const i = keyInfo(state.lastKey); if (i?.kind === 'block') { setLevel(i.id, blockById(i.id).level + 1); focusKey(state.lastKey, ...state.lastSel); } });
+  $('#btn-outdent').addEventListener('click', () => { if (isReport()) { reportShift(-1); return; } const i = keyInfo(state.lastKey); if (i?.kind === 'block') { setLevel(i.id, blockById(i.id).level - 1); focusKey(state.lastKey, ...state.lastSel); } });
+  $('#sel-level').addEventListener('change', (e) => {
+    if (isReport()) { const ri = R.keyInfo(state.lastKey); if (ri?.kind === 'block') { R.setType(ri.id, e.target.value); focusKey(state.lastKey, ...state.lastSel); } return; }
+    const i = keyInfo(state.lastKey); if (i?.kind === 'block') { setLevel(i.id, Number(e.target.value)); focusKey(state.lastKey, ...state.lastSel); } });
+  $('#btn-table').addEventListener('click', () => (isReport() ? R.insertTable() : insertTable()));
+  $('#btn-box').addEventListener('click', () => R.insertBox());
+  $('#btn-bold').addEventListener('click', () => { const el = state.lastKey && $(`[data-key="${CSS.escape(state.lastKey)}"]`); if (el) { setSel(el, ...state.lastSel); R.toggleBold(el); } });
+  $('#btn-break').addEventListener('click', () => R.insertBreak());
+  for (const id of ['btn-indent', 'btn-outdent', 'btn-table', 'btn-box', 'btn-break', 'btn-bold']) $(`#${id}`).addEventListener('mousedown', (e) => e.preventDefault());
 
   $('#btn-new').addEventListener('click', () => $('#dlg-templates').showModal());
   $('#template-grid').addEventListener('click', (e) => {
     const b = e.target.closest('[data-template]');
     if (!b) return;
-    const t = TEMPLATES.find((x) => x.id === b.dataset.template);
+    const t = [...REPORT_TEMPLATES, ...TEMPLATES].find((x) => x.id === b.dataset.template);
     $('#dlg-templates').close();
     const doc = t.make();
-    // 결문(기관·결재·연락처)은 지금 문서의 것을 이어 쓴다.
     const cur = state.doc;
+    if (t.kind === 'report') {
+      // 서식 설정과 부서는 지금 보고서의 것을 이어 쓴다.
+      doc.meta.date = todayText();
+      if (cur.kind === 'report') {
+        doc.settings = JSON.parse(JSON.stringify(cur.settings));
+        if (cur.meta.dept) doc.meta.dept = cur.meta.dept;
+      }
+      replaceDoc(doc, `'${t.name}' 서식으로 새 문서를 시작했습니다.`);
+      focusKey('r:meta:title', Infinity);
+      return;
+    }
+    if (cur.kind === 'report') {
+      replaceDoc(doc, `'${t.name}' 서식으로 새 문서를 시작했습니다.`);
+      focusKey('title', Infinity);
+      return;
+    }
+    // 결문(기관·결재·연락처)은 지금 문서의 것을 이어 쓴다.
     doc.org = { ...cur.org };
     if (doc.kind === 'external') doc.sender = { ...cur.sender };
     doc.approval = JSON.parse(JSON.stringify(cur.approval));
@@ -1412,7 +1580,7 @@ function bind() {
   $('#btn-save').addEventListener('click', saveJson);
   $('#btn-docx').addEventListener('click', exportDocx);
   $('#btn-hwpx').addEventListener('click', exportHwpx);
-  $('#btn-print').addEventListener('click', () => window.print());
+  $('#btn-print').addEventListener('click', () => (isReport() ? R.print() : window.print()));
   $('#btn-copy').addEventListener('click', copyText);
 
   $$('.tabs [data-tab]').forEach((b) => b.addEventListener('click', () => selectTab(b.dataset.tab)));
@@ -1435,6 +1603,11 @@ function bind() {
     if (fx) { const it = state.issues.find((x) => x.id === fx.dataset.fix); if (it) fixIssue(it); }
   });
   $('#btn-fix-all').addEventListener('click', fixAll);
+  $$('[data-symbols]').forEach((b) => b.addEventListener('click', () => {
+    remember();
+    state.doc.settings.symbols = b.dataset.symbols.split(' ');
+    changed({ sheet: true, panel: true });
+  }));
 
   for (const id of ['tool-date', 'tool-weekday', 'tool-time', 'tool-amount']) $(`#${id}`).addEventListener('input', updateToolPreviews);
   $('#tool-date-insert').addEventListener('click', () => insertFromTool($('#tool-date-out').textContent));

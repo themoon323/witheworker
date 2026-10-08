@@ -8,7 +8,8 @@
     "test": "node --test tests/*.test.mjs",
     "build": "node build.mjs",
     "vendor": "node scripts/vendor.mjs",
-    "e2e": "node build.mjs && node tests/e2e.mjs && node tests/e2e-import.mjs",
+    "e2e": "node build.mjs && node tests/e2e.mjs && node tests/e2e-import.mjs && node tests/e2e-report.mjs",
+    "md2hwpx": "node scripts/md2hwpx.mjs",
     "start": "npx http-server . -p 8080 -c-1"
   },
   "devDependencies": {

@@ -49,10 +49,14 @@ function build() {
   const css = readFileSync(join(root, 'styles.css'), 'utf8');
   // 인라인 스크립트 안에서 '</script'가 나오면 HTML이 끊기므로 막는다.
   const js = bundle().replace(/<\/script/gi, '<\\/script');
-  const full = html
-    .replace('<link rel="stylesheet" href="styles.css">', () => `<style>\n${css}</style>`)
-    .replace('<script type="module" src="src/app.js"></script>', () => `<script type="module">\n${js}</script>`);
-  if (full.includes('src="src/') || full.includes('href="styles.css"')) throw new Error('index.html 치환에 실패했습니다.');
+  // 태그 손질은 스크립트를 넣기 전의 틀(index.html)에만 한다. (스크립트 문자열 안의 '</body>'를 건드리지 않도록)
+  const inline = (shell) => {
+    const out = shell
+      .replace('<link rel="stylesheet" href="styles.css">', () => `<style>\n${css}</style>`)
+      .replace('<script type="module" src="src/app.js"></script>', () => `<script type="module">\n${js}</script>`);
+    if (out.includes('src="src/') || out.includes('href="styles.css"')) throw new Error('index.html 치환에 실패했습니다.');
+    return out;
+  };
 
   // 내려받는 편집기는 인터넷 없이도 PDF를 읽도록 pdf.js와 Claude SDK를 파일 안에 넣는다(필요할 때 실행).
   const vendor = ['pdf.worker.min.js', 'pdf.min.js', 'anthropic-sdk.min.js'].map((f) => {
@@ -60,19 +64,21 @@ function build() {
     if (/<\/script/i.test(code)) throw new Error(`vendor/${f}에 </script가 있어 넣을 수 없습니다.`);
     return `<script type="text/plain" data-vendor="${f}">${code}</script>`;
   }).join('\n');
-  const offline = full.replace('</body>', () => `${vendor}\n</body>`);
+  if ((html.match(/<\/body>/g) || []).length !== 1) throw new Error('index.html에 </body>가 하나여야 합니다.');
+  const offline = inline(html.replace('</body>', () => `${vendor}\n</body>`));
 
   mkdirSync(join(root, 'dist'), { recursive: true });
   writeFileSync(join(root, 'dist/gongmun-editor.html'), offline);
 
   // 아티팩트(웹 미리보기)는 문서 골격 없이 내용만 둔다.
-  const artifact = full
+  const artifactShell = html
     .replace(/<!doctype html>\s*/i, '')
     .replace(/<html[^>]*>\s*/i, '').replace(/<\/html>\s*/i, '')
     .replace(/<head>\s*/i, '').replace(/<\/head>\s*/i, '')
     .replace(/<meta charset="utf-8">\s*/i, '').replace(/<meta name="viewport"[^>]*>\s*/i, '')
     .replace(/<body>\s*/i, '').replace(/<\/body>\s*/i, '')
-    .replace('<script type="module">', '<script>window.GONGMUN_ARTIFACT = true;</script>\n<script type="module">');
+    .replace('<script type="module" src="src/app.js"></script>', '<script>window.GONGMUN_ARTIFACT = true;</script>\n<script type="module" src="src/app.js"></script>');
+  const artifact = inline(artifactShell);
   writeFileSync(join(root, 'dist/artifact.html'), artifact);
   console.log(`dist/gongmun-editor.html (${(offline.length / 1024).toFixed(1)} KB)`);
   console.log(`dist/artifact.html (${(artifact.length / 1024).toFixed(1)} KB)`);

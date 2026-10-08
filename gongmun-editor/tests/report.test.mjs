@@ -6,6 +6,7 @@ import { computeHeadingMarkers, itemSymbol, parseInline, defaultHeader, contentI
 import { lintReport, applyReportFix } from '../src/reportLint.js';
 import { buildReportHwpx, reportHeaderText } from '../src/reportHwpx.js';
 import { reportToHtml } from '../src/reportHtml.js';
+import { renderedToRaw, shiftBlock, applyTypeCode, nextBlockAfter } from '../src/reportEditor.js';
 import { findGlossaryTerms } from '../src/glossary.js';
 
 const kinds = (doc) => doc.blocks.map((b) => (b.type === 'item' || b.type === 'heading' ? `${b.type[0]}${b.level}` : b.type[0]));
@@ -148,4 +149,20 @@ test('보고서 HTML 미리보기와 머리말 끄기', () => {
   assert.match(html, /Ⅰ\./);
   assert.match(html, /r-page/);
   assert.equal(normalizeReport(JSON.parse(JSON.stringify(doc))).blocks.length, doc.blocks.length);
+});
+
+test('편집기: 굵게 표시 위치 변환, 수준 옮기기, 다음 줄 종류', () => {
+  const t = '앞 **굵게** 뒤 <u>밑줄</u>';
+  // 화면 글: '앞 굵게 뒤 밑줄'
+  assert.equal(renderedToRaw(t, 0), 0);
+  assert.equal(renderedToRaw(t, 2), 2); // 경계에서는 꾸밈 기호 바깥(앞)에 둔다
+  assert.equal(t.slice(renderedToRaw(t, 3)), '게** 뒤 <u>밑줄</u>'); // '굵' 다음
+  assert.equal(t.slice(renderedToRaw(t, 5)), '뒤 <u>밑줄</u>');
+  assert.equal(t.slice(renderedToRaw(t, 8)), '줄</u>');
+  const b = rblock.item(1, 'x');
+  shiftBlock(b, 1); assert.equal(b.level, 2);
+  shiftBlock(b, -1); shiftBlock(b, -1); assert.deepEqual([b.type, b.level], ['heading', 3]);
+  assert.equal(shiftBlock(rblock.heading(1, 'x'), -1), false);
+  const n = rblock.item(2, 'x'); applyTypeCode(n, 'n'); assert.deepEqual([n.type, n.level], ['note', 2]);
+  assert.deepEqual([nextBlockAfter(rblock.heading(2, 'h'), '').type, nextBlockAfter(rblock.heading(2, 'h'), '').level], ['item', 1]);
 });

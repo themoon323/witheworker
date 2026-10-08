@@ -44,6 +44,9 @@
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
+/* 공문 모드와 보고서 모드에서만 보이는 것 */
+body.mode-report [data-mode="gongmun"] { display: none !important; }
+body:not(.mode-report) [data-mode="report"] { display: none !important; }
 html, body { height: 100%; }
 body { margin: 0; background: var(--desk); color: var(--fg); font: 14px/1.5 var(--ui); }
 button, input, select, textarea { font: inherit; color: inherit; }
@@ -298,3 +301,27 @@ dialog::backdrop { background: rgb(10 15 25 / 0.45); }
   .foot { cursor: default; }
   .foot .empty { display: none; }
 }
+
+/* 보고서 모드 화면 */
+.sheet.report .r-title, .sheet.report .r-cover-title { display: block; }
+.sheet.report .ed-chrome { cursor: pointer; }
+.sheet.report .r-header { position: absolute; text-align: right; color: #333; }
+.sheet.report .r-header:hover, .sheet.report .r-toc:hover { background: rgb(29 79 145 / 0.05); }
+.sheet.report .r-toc .empty { color: #9aa3ad; text-align: center; font-size: 0.85em; }
+.sheet.report .r-meta { text-align: right; }
+.sheet.report .r-meta [contenteditable] { display: inline-block; min-width: 3em; }
+.sheet.report .r-box { position: relative; }
+.sheet.report .r-table tr.r-th td { text-align: center; font-weight: 700; }
+.sheet.report .r-box-lines { white-space: pre-wrap; min-height: 1lh; }
+.sheet.report .r-tx, .sheet.report .r-para { white-space: pre-wrap; min-height: 1lh; }
+.sheet.report .r-cover { display: flex; flex-direction: column; align-items: stretch; gap: 6pt; min-height: 220mm; padding-top: 60mm; }
+.sheet.report .r-cover-foot { margin-top: auto; }
+.r-break {
+  display: flex; align-items: center; gap: 8px; margin: 10pt 0; color: #6c7a8e; font: 12px/1 var(--ui);
+  border-top: 1px dashed #9aa7b8; padding-top: 4px; user-select: none;
+}
+.r-break button { border: 1px solid #c9d1dc; background: #fff; color: #5a6476; border-radius: 4px; padding: 2px 6px; cursor: pointer; font: 11px/1 var(--ui); }
+.sheet.report .blk[data-issue]::before { left: -14mm; }
+.presets { display: flex; gap: 6px; flex-wrap: wrap; }
+.presets button { border: 1px solid var(--line); background: var(--chrome-2); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+.tpl-group { grid-column: 1 / -1; margin: 6px 0 0; font-size: 13px; color: var(--muted); font-weight: 600; }

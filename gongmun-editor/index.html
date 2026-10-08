@@ -12,11 +12,11 @@
 <body>
 <div class="app">
   <header class="toolbar" role="toolbar" aria-label="문서 도구">
-    <div class="brand"><span class="brand-seal" aria-hidden="true">공</span><span>공문 편집기</span></div>
+    <div class="brand"><span class="brand-seal" aria-hidden="true">공</span><span>공문·보고서 편집기</span></div>
     <div class="tool-group">
       <button type="button" id="btn-new" title="서식을 골라 새 문서 시작">새 문서</button>
       <button type="button" id="btn-import" title="PDF·텍스트 초안을 불러와 공문으로 만들기 (AI 작성 포함)">초안 가져오기</button>
-      <button type="button" id="btn-open" title="저장한 문서(.json), 텍스트, PDF 파일 열기">열기</button>
+      <button type="button" id="btn-open" title="저장한 문서(.json), 마크다운(.md), 텍스트, PDF 파일 열기">열기</button>
       <button type="button" id="btn-save" data-needs-save title="문서 파일(.json)로 저장 (Ctrl+S)">저장</button>
     </div>
     <div class="tool-group">
@@ -34,7 +34,10 @@
         <option value="8">㉮</option>
       </select>
       <button type="button" id="btn-indent" title="하위 항목으로 (Tab)" aria-label="들여쓰기">들여쓰기 ▸</button>
-      <button type="button" id="btn-table" title="현재 항목 아래에 표 넣기">표</button>
+      <button type="button" id="btn-table" title="현재 줄 아래에 표 넣기">표</button>
+      <button type="button" id="btn-bold" data-mode="report" title="선택한 글 굵게 (Ctrl+B)" aria-label="굵게"><b>가</b></button>
+      <button type="button" id="btn-box" data-mode="report" title="현재 줄 아래에 참고 박스 넣기">박스</button>
+      <button type="button" id="btn-break" data-mode="report" title="현재 줄 아래에서 쪽 나누기">쪽 나눔</button>
     </div>
     <div class="tool-group">
       <button type="button" id="btn-undo" title="되돌리기 (Ctrl+Z)" aria-label="되돌리기">↶</button>
@@ -43,7 +46,7 @@
     <div class="tool-group tool-end">
       <button type="button" id="btn-copy" title="공문 본문을 텍스트로 복사 (온-나라·한글에 붙여넣기)">텍스트 복사</button>
       <button type="button" id="btn-hwpx" data-needs-save title="한글 문서(HWPX)로 내보내기">한글(HWPX)</button>
-      <button type="button" id="btn-docx" data-needs-save title="워드·한글에서 여는 DOCX 파일로 내보내기">DOCX</button>
+      <button type="button" id="btn-docx" data-mode="gongmun" data-needs-save title="워드·한글에서 여는 DOCX 파일로 내보내기">DOCX</button>
       <button type="button" id="btn-print" data-local-only class="primary" title="A4로 인쇄하거나 PDF로 저장 (Ctrl+P)">인쇄·PDF</button>
     </div>
     <span id="save-status" class="save-status" aria-live="polite"></span>
@@ -59,8 +62,10 @@
     <aside class="panel" aria-label="문서 설정">
       <nav class="tabs" role="tablist">
         <button type="button" role="tab" data-tab="check" aria-selected="true">검사 <span class="count" id="issue-count">0</span></button>
-        <button type="button" role="tab" data-tab="info" aria-selected="false">문서 정보</button>
-        <button type="button" role="tab" data-tab="footer" aria-selected="false">결문</button>
+        <button type="button" role="tab" data-tab="info" data-mode="gongmun" aria-selected="false">문서 정보</button>
+        <button type="button" role="tab" data-tab="footer" data-mode="gongmun" aria-selected="false">결문</button>
+        <button type="button" role="tab" data-tab="rinfo" data-mode="report" aria-selected="false">문서 정보</button>
+        <button type="button" role="tab" data-tab="rformat" data-mode="report" aria-selected="false">서식</button>
         <button type="button" role="tab" data-tab="tools" aria-selected="false">서식·도구</button>
       </nav>
 
@@ -170,6 +175,66 @@
         </fieldset>
       </div>
 
+      <div class="tab-body" data-pane="rinfo" role="tabpanel" hidden>
+        <fieldset>
+          <legend>제목과 작성 정보</legend>
+          <label class="fld"><span>제목 <small>제목만 보고 전체 내용을 알 수 있게</small></span><input id="f-r-title" data-bind="meta.title"></label>
+          <label class="fld"><span>부제(선택)</span><input id="f-r-subtitle" data-bind="meta.subtitle"></label>
+          <div class="row2">
+            <label class="fld"><span>날짜</span><input id="f-r-date" data-bind="meta.date" placeholder="2026. 10. 8."></label>
+            <label class="fld"><span>부서·기관</span><input id="f-r-dept" data-bind="meta.dept" placeholder="○○과"></label>
+          </div>
+          <label class="fld"><span>머리말 <small>비우면 (날짜, 제목, 부서) 자동 · '없음'이면 넣지 않음</small></span><input id="f-r-header" data-bind="meta.header" placeholder="자동"></label>
+        </fieldset>
+        <fieldset>
+          <legend>구성</legend>
+          <label class="check"><input type="checkbox" id="f-r-cover" data-bind="meta.cover"> 표지 (제안서·긴 보고서)</label>
+          <label class="check"><input type="checkbox" id="f-r-toc" data-bind="meta.toc"> 목차 (장·절 제목으로 자동, 5쪽이 넘을 때)</label>
+          <label class="check"><input type="checkbox" id="f-r-pagenum" data-bind="settings.pageNumber"> 쪽 번호 (- 1 -)</label>
+        </fieldset>
+        <fieldset>
+          <legend>항목 기호 <small>수준 1~4</small></legend>
+          <label class="fld"><span>기호 (띄어서 입력)</span><input id="f-r-symbols" placeholder="□ o - ·"></label>
+          <div class="presets">
+            <button type="button" data-symbols="□ o - ·">□ o - ·</button>
+            <button type="button" data-symbols="□ ○ - ·">□ ○ - ·</button>
+            <button type="button" data-symbols="□ ㅇ - ·">□ ㅇ - ·</button>
+          </div>
+        </fieldset>
+      </div>
+
+      <div class="tab-body" data-pane="rformat" role="tabpanel" hidden>
+        <fieldset>
+          <legend>글꼴 <small>한글에 있는 글꼴 이름</small></legend>
+          <label class="fld"><span>본문 (명조)</span><input id="f-r-font-body" data-bind="settings.fonts.body" list="font-list"></label>
+          <label class="fld"><span>장·절 제목과 □ (헤드라인)</span><input id="f-r-font-head" data-bind="settings.fonts.head" list="font-list"></label>
+          <label class="fld"><span>주석·박스·표 제목·머리말 (중고딕)</span><input id="f-r-font-sub" data-bind="settings.fonts.sub" list="font-list"></label>
+          <datalist id="font-list">
+            <option value="휴먼명조"></option><option value="HY헤드라인M"></option><option value="HY중고딕"></option>
+            <option value="함초롬바탕"></option><option value="함초롬돋움"></option><option value="바탕"></option><option value="맑은 고딕"></option>
+          </datalist>
+        </fieldset>
+        <fieldset>
+          <legend>글자·줄 <small>기본: 본문 15pt, 줄간격 130%</small></legend>
+          <div class="row2">
+            <label class="fld"><span>본문 크기(pt)</span><input id="f-r-size" data-bind="settings.size" type="number" min="9" max="20" step="0.5"></label>
+            <label class="fld"><span>줄간격(%)</span><input id="f-r-line" data-bind="settings.lineHeight" type="number" min="100" max="250" step="5"></label>
+          </div>
+          <label class="fld"><span>항목 들여쓰기(글자)</span><input id="f-r-indent" data-bind="settings.indent" type="number" min="0" max="4" step="0.5"></label>
+        </fieldset>
+        <fieldset>
+          <legend>여백(mm) <small>기본: 위·아래 15, 좌우 20, 머리말·꼬리말 10</small></legend>
+          <div class="margins">
+            <label class="fld"><span>위</span><input id="f-r-m-top" data-bind="settings.margins.top" type="number" min="5" max="60"></label>
+            <label class="fld"><span>아래</span><input id="f-r-m-bottom" data-bind="settings.margins.bottom" type="number" min="5" max="60"></label>
+            <label class="fld"><span>왼쪽</span><input id="f-r-m-left" data-bind="settings.margins.left" type="number" min="5" max="60"></label>
+            <label class="fld"><span>오른쪽</span><input id="f-r-m-right" data-bind="settings.margins.right" type="number" min="5" max="60"></label>
+            <label class="fld"><span>머리말</span><input id="f-r-m-header" data-bind="settings.margins.header" type="number" min="0" max="40"></label>
+            <label class="fld"><span>꼬리말</span><input id="f-r-m-footer" data-bind="settings.margins.footer" type="number" min="0" max="40"></label>
+          </div>
+        </fieldset>
+      </div>
+
       <div class="tab-body" data-pane="tools" role="tabpanel" hidden>
         <fieldset>
           <legend>표기 도우미 <small>커서 위치에 넣습니다</small></legend>
@@ -190,7 +255,7 @@
             <button type="button" id="tool-amount-insert">넣기</button>
           </div>
         </fieldset>
-        <fieldset>
+        <fieldset data-mode="gongmun">
           <legend>용지·글자</legend>
           <div class="row2">
             <label class="fld"><span>글꼴</span><select id="f-settings.font" data-bind="settings.font"></select></label>
@@ -271,7 +336,7 @@
   </form>
 </dialog>
 
-<input type="file" id="file-open" accept=".json,.txt,.pdf,application/json,text/plain,application/pdf" hidden>
+<input type="file" id="file-open" accept=".json,.txt,.md,.markdown,.pdf,application/json,text/plain,text/markdown,application/pdf" hidden>
 <input type="file" id="file-pdf" accept=".pdf,application/pdf" hidden>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 <style id="page-style"></style>

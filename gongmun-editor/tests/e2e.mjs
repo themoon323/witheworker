@@ -28,6 +28,10 @@ await page.goto(url);
 await page.evaluate(() => localStorage.clear());
 await page.reload();
 await page.waitForSelector('#sheet .blk');
+// 처음에는 보고서 서식이 열린다. 이 점검은 공문 서식(회의 개최 알림)으로 한다.
+await page.click('#btn-new');
+await page.click('[data-template="meeting"]');
+await page.waitForSelector('#body .blk.item .mk');
 
 const markers = () => page.$$eval('#body .blk.item', (els) => els.map((e) => (e.querySelector('.mk')?.textContent || '') + '|' + e.querySelector('.tx').textContent));
 let step = 'initial';

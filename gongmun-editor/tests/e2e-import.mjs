@@ -33,6 +33,26 @@ const AI_RESULT = {
   notes: ['참석 대상 기관을 확인하십시오.'],
 };
 
+
+// Messages API 스트리밍(SSE) 응답 흉내
+function sse(text) {
+  const ev = (type, data) => `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`;
+  return ev('message_start', { message: { id: 'msg_test', type: 'message', role: 'assistant', model: 'claude-opus-5-5', content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 1 } } })
+    + ev('content_block_start', { index: 0, content_block: { type: 'text', text: '' } })
+    + ev('content_block_delta', { index: 0, delta: { type: 'text_delta', text: text.slice(0, 20) } })
+    + ev('content_block_delta', { index: 0, delta: { type: 'text_delta', text: text.slice(20) } })
+    + ev('content_block_stop', { index: 0 })
+    + ev('message_delta', { delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 10 } })
+    + ev('message_stop', {});
+}
+
+// 요청 종류(공문/보고서)에 맞는 가짜 결과
+let REPORT_MD = '';
+function nextResult(body) {
+  if (body.output_config?.format?.schema?.properties?.markdown) return { markdown: REPORT_MD, notes: ['예산 수치를 확인하십시오.'] };
+  return AI_RESULT;
+}
+
 const browser = await playwright.chromium.launch();
 const errors = [];
 let step = 'start';
@@ -55,6 +75,9 @@ try {
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await page.waitForSelector('#sheet .blk');
+  await page.click('#btn-new');
+  await page.click('[data-template="meeting"]');
+  await page.waitForSelector('#body .blk.item .mk');
   await page.emulateMedia({ media: 'print' });
   const pdfPath = join(outDir, 'source.pdf');
   await page.pdf({ path: pdfPath, format: 'A4', preferCSSPageSize: true });
@@ -98,15 +121,7 @@ try {
       await route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } }) });
       return;
     }
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      headers: { 'access-control-allow-origin': '*' },
-      body: JSON.stringify({
-        id: 'msg_test', type: 'message', role: 'assistant', model: 'claude-opus-5-5', stop_reason: 'end_turn', stop_sequence: null,
-        content: [{ type: 'text', text: JSON.stringify(AI_RESULT) }], usage: { input_tokens: 10, output_tokens: 10 },
-      }),
-    });
+    await route.fulfill({ status: 200, contentType: 'text/event-stream', headers: { 'access-control-allow-origin': '*' }, body: sse(JSON.stringify(nextResult(seen.body))) });
   });
   await page.click('#btn-import');
   await page.fill('#import-text', '다음 주 목요일 오후 2시 시청 3층 대회의실에서 구군 담당자 회의. 명단은 월요일까지 메일로.');
@@ -174,7 +189,12 @@ try {
       if (name === 'downloads') return { save: async (req) => { window.__saved.push({ filename: req.filename, size: req.data.size ?? req.data.length }); return { status: 'saved' }; } };
       if (name === 'sample') {
         const fn = async () => ({ text: '', truncated: false });
-        fn.json = async (input, opts) => { window.__prompts.push({ input, images: opts?.images?.length || 0 }); return ${JSON.stringify(AI_RESULT)}; };
+        fn.json = async (input, opts) => {
+          window.__prompts.push({ input, images: opts?.images?.length || 0 });
+          // 보고서 요청이면 마크다운으로 답한다.
+          if (input.includes('"markdown"')) return { markdown: ${JSON.stringify('---\n제목: 구·군 담당자 회의 결과 보고\n---\n## 개요\n□ 회의 결과를 보고함\n  o 참석 12명\n  o 안건 2건\n')}, notes: ['참석자 수를 확인하십시오.'] };
+          return ${JSON.stringify(AI_RESULT)};
+        };
         fn.limits = async () => ({ maxPromptBytes: 262144, images: { maxCount: 5, maxInputBytes: 20000000, mediaTypes: ['image/png'] } });
         return fn;
       }
@@ -205,11 +225,14 @@ try {
   await ap.click('#import-ai');
   await ap.waitForSelector('#dlg-notes[open]');
   const prompt = await ap.evaluate(() => window.__prompts[0]);
+  // 아티팩트는 처음에 보고서 모드로 열리므로 보고서 작성 요청이 간다.
   assert.match(prompt.input, /JSON 객체 하나/);
+  assert.match(prompt.input, /공공보고서 작성 기준/);
   assert.match(prompt.input, /<<<\n/);
   assert.equal(prompt.images, 0);
   await ap.click('#dlg-notes button');
-  assert.equal(await ap.$eval('[data-key="title"]', (e) => e.textContent), AI_RESULT.title);
+  assert.equal(await ap.$eval('[data-key="r:meta:title"]', (e) => e.textContent), '구·군 담당자 회의 결과 보고');
+  assert.deepEqual(await ap.$$eval('#sheet .r-mk', (els) => els.map((e) => e.textContent)), ['Ⅰ.', '□', 'o', 'o']);
   await ap.screenshot({ path: join(outDir, 'artifact-after-ai.png') });
 
   // 좁은 화면에서 대화상자
