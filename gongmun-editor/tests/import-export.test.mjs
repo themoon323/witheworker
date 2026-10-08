@@ -4,6 +4,7 @@ import { itemsToLines, linesToText } from '../src/pdfText.js';
 import { parsePlainDocument } from '../src/importText.js';
 import { normalizeAiResult, docFromAi, buildUserPrompt, buildSamplePrompt, AI_SCHEMA } from '../src/ai.js';
 import { buildHwpx, buildSectionXml } from '../src/hwpx.js';
+import { Styles } from '../src/hwpxCore.js';
 import { blankDoc, item, table, TEMPLATES } from '../src/model.js';
 import { HEADER_XML } from '../src/hwpxTemplate.js';
 
@@ -153,7 +154,7 @@ test('HWPX: 특수문자 이스케이프와 줄바꿈', () => {
   doc.blocks[2].rows[1] = ['', ''];
   doc.blocks[2].rows.push(['', '']);
   doc.blocks[2].rows[1][0] = '값';
-  const sec = buildSectionXml(doc, new (class { char() { return 0; } para() { return 0; } })());
+  const sec = buildSectionXml(doc, new Styles());
   assert.match(sec, /A&amp;B &lt;협조&gt;/);
   assert.match(sec, /첫 줄<hp:lineBreak\/>둘째 줄/);
   assert.match(sec, /이하 빈칸/);

@@ -91,7 +91,7 @@ function overlaps(ranges, s, e) {
   return ranges.some(([a, b]) => s < b && e > a);
 }
 
-function checkText(text, loc, push) {
+export function checkText(text, loc, push) {
   if (!text) return;
   const taken = [];
   const add = (issue) => {
