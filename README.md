@@ -43,3 +43,7 @@ output/    # 분석 결과표, 그래프 저장
 ```bash
 python3 analysis/template_analysis.py
 ```
+
+## 나라장터 입찰 모니터링 (`nara/`)
+
+숙의·원탁토론·리빙랩·퍼실리테이션 등 키워드로 나라장터 용역 공고·사전규격을 모니터링하고 낙찰정보로 경쟁사를 분석하는 도구입니다. 설정과 사용법은 [`nara/README.md`](nara/README.md)를 보세요.

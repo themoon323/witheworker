@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "naramarket": {
+      "command": "python3",
+      "args": ["nara/mcp_server.py"],
+      "env": { "NARA_SERVICE_KEY": "${NARA_SERVICE_KEY:-}" }
+    }
+  }
+}

@@ -4,3 +4,8 @@ output/*.csv
 output/*.png
 .ipynb_checkpoints/
 data_private/
+
+# 나라장터 모니터링: 키·실행 상태·보고서는 커밋하지 않음
+nara/.env
+nara/state/
+nara/reports/
