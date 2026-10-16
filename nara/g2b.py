@@ -26,7 +26,7 @@ from zoneinfo import ZoneInfo
 KST = ZoneInfo("Asia/Seoul")
 HERE = Path(__file__).resolve().parent
 
-BASE = "http://apis.data.go.kr/1230000"
+BASE = "https://apis.data.go.kr/1230000"
 OPS = {
     "bid": f"{BASE}/ad/BidPublicInfoService/getBidPblancListInfoServcPPSSrch",
     "award": f"{BASE}/as/ScsbidInfoService/getScsbidListSttusServcPPSSrch",
