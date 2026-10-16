@@ -17,6 +17,7 @@ import csv
 import json
 import sys
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -57,9 +58,12 @@ def _excluded(name: str, exclude: list[str]) -> bool:
 def _collect(kind: str, keywords: list[str], days: int, exclude: list[str], name_field: str,
              key_fn, fetch=g2b.fetch) -> list[dict]:
     """키워드별로 조회해 합치고, 같은 건은 하나로 묶어 매칭 키워드를 기록한다."""
+    # 키워드별 조회는 서로 독립이라 병렬로 부르고, 합치는 건 키워드 순서대로 한다.
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(lambda kw: fetch(kind, keyword=kw, days=days), keywords))
     merged: dict = {}
-    for kw in keywords:
-        for row in fetch(kind, keyword=kw, days=days):
+    for kw, found in zip(keywords, results):
+        for row in found:
             name = row.get(name_field, "") or ""
             # 서버 검색은 부분일치라 노이즈가 있어 클라이언트에서 한 번 더 확인한다.
             if kw not in name.replace(" ", "") and kw not in name:

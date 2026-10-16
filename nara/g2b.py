@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import time
@@ -127,17 +128,23 @@ def parse_response(raw: bytes) -> tuple[list[dict], int]:
     return items, int(body.get("totalCount") or 0)
 
 
-def _get(url: str, params: dict, retries: int = 3) -> bytes:
+def _get(url: str, params: dict, retries: int = 12, timeout: float = 5) -> bytes:
+    """GET 요청. data.go.kr은 해외 클라우드 등에서 오는 TLS 연결 일부를 응답 없이 끊는다.
+    정상 응답은 1초 안팎이라, 짧은 타임아웃으로 빨리 포기하고 여러 번 재시도한다."""
     full = f"{url}?{urllib.parse.urlencode(params)}"
     last: Exception | None = None
     for attempt in range(retries):
         try:
-            with urllib.request.urlopen(full, timeout=30) as r:
+            with urllib.request.urlopen(full, timeout=timeout) as r:
                 return r.read()
-        except (urllib.error.URLError, TimeoutError) as e:
+        except urllib.error.HTTPError as e:
+            if e.code < 500:
+                raise G2BError(f"HTTP {e.code} — 서비스키 값과 활용신청 승인 여부를 확인하세요") from e
             last = e
-            time.sleep(2 ** attempt)
-    raise G2BError(f"네트워크 오류: {last}")
+        except (OSError, http.client.HTTPException) as e:  # 연결 끊김·타임아웃
+            last = e
+        time.sleep(min(0.5 * (attempt + 1), 3))
+    raise G2BError(f"네트워크 오류({retries}회 재시도 실패): {last}")
 
 
 def fetch(kind: str, keyword: str | None = None, days: int = 7, extra: dict | None = None,

@@ -10,7 +10,10 @@
     "타운홀",
     "시민참여단"
   ],
-  "exclude": [],
+  "exclude": [
+    "청소용역",
+    "시설관리"
+  ],
   "competitors": [],
   "bid_days": 7,
   "prespec_days": 14,
