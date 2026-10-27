@@ -118,16 +118,31 @@ class MonitorTest(unittest.TestCase):
         self.assertIn("다라 ⭐", md)
         self.assertIn("1.20억", md)
 
-    def test_report_marks_new_only_once(self):
-        cfg = {"keywords": ["숙의", "리빙랩"], "exclude": ["청소"]}
-        with mock.patch.object(monitor, "load_seen", return_value={"bid": [], "prespec": []}):
-            md, seen = monitor.build_report(cfg, fetch=fake_fetch)
-        self.assertIn("🆕", md)
-        self.assertIn("가나협동조합", md)
-        with mock.patch.object(monitor, "load_seen", return_value=seen):
-            md2, _ = monitor.build_report(cfg, fetch=fake_fetch)
-        self.assertNotIn("🆕", md2)
+    def test_report_open_bids_and_new_marks(self):
+        from datetime import timedelta
+        now = datetime.now(g2b.KST)
+        f = lambda d: (now + timedelta(days=d)).strftime("%Y-%m-%d %H:%M:%S")
+        bids = [
+            {"bidNtceNo": "NEW", "bidNtceOrd": "000", "bidNtceNm": "시민참여 토론회 운영", "bidNtceDt": f(-1), "bidClseDt": f(5)},
+            {"bidNtceNo": "OLD", "bidNtceOrd": "000", "bidNtceNm": "시민참여 숙의 워크숍", "bidNtceDt": f(-10), "bidClseDt": f(2)},
+            {"bidNtceNo": "CLOSED", "bidNtceOrd": "000", "bidNtceNm": "시민참여 공론화", "bidNtceDt": f(-20), "bidClseDt": f(-1)},
+        ]
+        calls = []
 
+        def fetch(kind, keyword=None, days=7):
+            calls.append((kind, keyword))
+            if kind == "bid" and keyword == "시민참여":
+                return bids
+            return AWARDS if kind == "award" and keyword == "리빙랩" else []
+
+        cfg = {"keywords": ["리빙랩"], "watch_keywords": ["시민참여"], "exclude": []}
+        with mock.patch.object(monitor, "load_seen", return_value={"bid": [], "prespec": []}):
+            md, _ = monitor.build_report(cfg, fetch=fetch)
+        self.assertNotIn("시민참여 공론화", md)                              # 마감 지난 공고 제외
+        self.assertLess(md.index("숙의 워크숍"), md.index("토론회 운영"))  # 마감 임박순
+        self.assertEqual(md.count("🆕"), 1)                                # 최근 4일 공고만 신규
+        self.assertIn("가나협동조합", md)
+        self.assertNotIn(("award", "시민참여"), calls)                      # 낙찰은 핵심 키워드만
 
 if __name__ == "__main__":
     unittest.main()

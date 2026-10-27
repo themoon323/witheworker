@@ -18,7 +18,7 @@ import json
 import sys
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -146,26 +146,26 @@ def _cell(s) -> str:
     return str(s or "").replace("|", "／").replace("\n", " ").strip()
 
 
-def bids_table(rows: list[dict], seen: set | None = None) -> str:
-    lines = ["| | 공고일 | 공고명 | 수요기관 | 추정가격 | 마감 | 키워드 |",
-             "|---|---|---|---|---|---|---|"]
+def bids_table(rows: list[dict], new: set | None = None) -> str:
+    lines = ["| | 공고일 | 공고명 | 수요기관 | 추정가격 | 마감 | 계약방법 | 키워드 |",
+             "|---|---|---|---|---|---|---|---|"]
     for r in rows:
-        new = "🆕" if seen is not None and r.get("bidNtceNo") not in seen else ""
+        mark = "🆕" if new and r.get("bidNtceNo") in new else ""
         title = _cell(r.get("bidNtceNm"))
         if r.get("bidNtceDtlUrl"):
             title = f"[{title}]({r['bidNtceDtlUrl']})"
-        lines.append(f"| {new} | {_cell(r.get('bidNtceDt'))[:10]} | {title} | "
+        lines.append(f"| {mark} | {_cell(r.get('bidNtceDt'))[:10]} | {title} | "
                      f"{_cell(r.get('dminsttNm') or r.get('ntceInsttNm'))} | {_won(r.get('presmptPrce') or r.get('asignBdgtAmt'))} | "
-                     f"{_cell(r.get('bidClseDt'))[:16]} | {', '.join(r['_keywords'])} |")
+                     f"{_cell(r.get('bidClseDt'))[:16]} | {_cell(r.get('cntrctCnclsMthdNm'))} | {', '.join(r['_keywords'])} |")
     return "\n".join(lines)
 
 
-def prespecs_table(rows: list[dict], seen: set | None = None) -> str:
+def prespecs_table(rows: list[dict], new: set | None = None) -> str:
     lines = ["| | 접수일 | 사업명 | 수요기관 | 배정예산 | 의견마감 | 키워드 |",
              "|---|---|---|---|---|---|---|"]
     for r in rows:
-        new = "🆕" if seen is not None and r.get("bfSpecRgstNo") not in seen else ""
-        lines.append(f"| {new} | {_cell(r.get('rcptDt'))[:10]} | {_cell(r.get('prdctClsfcNoNm'))} | "
+        mark = "🆕" if new and r.get("bfSpecRgstNo") in new else ""
+        lines.append(f"| {mark} | {_cell(r.get('rcptDt'))[:10]} | {_cell(r.get('prdctClsfcNoNm'))} | "
                      f"{_cell(r.get('rlDminsttNm') or r.get('orderInsttNm'))} | {_won(r.get('asignBdgtAmt'))} | "
                      f"{_cell(r.get('opninRgstClseDt'))[:16]} | {', '.join(r['_keywords'])} |")
     return "\n".join(lines)
@@ -203,26 +203,33 @@ def write_csv(rows: list[dict], path: str) -> None:
 
 
 def build_report(cfg: dict, fetch=g2b.fetch) -> tuple[str, dict]:
+    """공고·사전규격은 keywords+watch_keywords로, 낙찰 분석은 핵심 keywords로만 조회한다.
+    입찰공고는 아직 마감 전인 것만 마감 임박순으로 보여주고, 최근 new_days일 안에
+    올라온 건에 🆕를 붙인다(클라우드 예약 실행은 매번 새 환경이라 날짜 기준으로 판단)."""
     kws, exc = cfg["keywords"], cfg.get("exclude", [])
-    seen = load_seen()
-    bids = search_bids(kws, cfg.get("bid_days", 7), exc, fetch)
-    pres = search_prespecs(kws, cfg.get("prespec_days", 14), exc, fetch)
-    awards = search_awards(kws, cfg.get("award_days", 365), exc, fetch)
-    seen_bid, seen_pre = set(seen.get("bid", [])), set(seen.get("prespec", []))
-    new_bids = [b for b in bids if b.get("bidNtceNo") not in seen_bid]
-    new_pres = [p for p in pres if p.get("bfSpecRgstNo") not in seen_pre]
+    watch = kws + [k for k in cfg.get("watch_keywords", []) if k not in kws]
+    now_dt = datetime.now(g2b.KST)
+    now = now_dt.strftime("%Y-%m-%d %H:%M")
+    since = (now_dt - timedelta(days=cfg.get("new_days", 4))).strftime("%Y-%m-%d %H:%M")
 
-    now = datetime.now(g2b.KST).strftime("%Y-%m-%d %H:%M")
+    bids = search_bids(watch, cfg.get("bid_days", 30), exc, fetch)
+    bids = sorted((b for b in bids if (b.get("bidClseDt") or "") >= now), key=lambda b: b.get("bidClseDt", ""))
+    pres = search_prespecs(watch, cfg.get("prespec_days", 14), exc, fetch)
+    awards = search_awards(kws, cfg.get("award_days", 365), exc, fetch)
+    new_bids = {b.get("bidNtceNo") for b in bids if (b.get("bidNtceDt") or "") >= since}
+    new_pres = {p.get("bfSpecRgstNo") for p in pres if (p.get("rcptDt") or p.get("rgstDt") or "") >= since}
+
     md = [f"# 나라장터 모니터링 보고서 ({now} KST)", "",
-          f"키워드: {', '.join(kws)}", "",
-          f"- 입찰공고(최근 {cfg.get('bid_days', 7)}일): **{len(bids)}건** (신규 {len(new_bids)})",
+          f"공고·사전규격 키워드: {', '.join(watch)}  ", f"낙찰 분석 키워드: {', '.join(kws)}", "",
+          f"- 마감 전 입찰공고: **{len(bids)}건** (최근 {cfg.get('new_days', 4)}일 신규 {len(new_bids)})",
           f"- 사전규격(최근 {cfg.get('prespec_days', 14)}일): **{len(pres)}건** (신규 {len(new_pres)})",
           f"- 낙찰(최근 {cfg.get('award_days', 365)}일): **{len(awards)}건**", "",
-          "## 1. 입찰공고", "", bids_table(bids, seen_bid) if bids else "_해당 기간 공고 없음_", "",
-          "## 2. 사전규격 (본공고 전 단계)", "", prespecs_table(pres, seen_pre) if pres else "_해당 기간 사전규격 없음_", "",
+          "## 1. 입찰공고 (마감 전, 마감 임박순)", "", bids_table(bids, new_bids) if bids else "_마감 전 공고 없음_", "",
+          "## 2. 사전규격 (본공고 전 단계)", "", prespecs_table(pres, new_pres) if pres else "_해당 기간 사전규격 없음_", "",
           "## 3. 낙찰 분석", "", awards_tables(awards, cfg.get("competitors", [])) if awards else "_해당 기간 낙찰 없음_", ""]
-    seen["bid"] = sorted(seen_bid | {b.get("bidNtceNo") for b in bids if b.get("bidNtceNo")})
-    seen["prespec"] = sorted(seen_pre | {p.get("bfSpecRgstNo") for p in pres if p.get("bfSpecRgstNo")})
+    seen = load_seen()
+    seen["bid"] = sorted(set(seen.get("bid", [])) | {b.get("bidNtceNo") for b in bids if b.get("bidNtceNo")})
+    seen["prespec"] = sorted(set(seen.get("prespec", [])) | {p.get("bfSpecRgstNo") for p in pres if p.get("bfSpecRgstNo")})
     return "\n".join(md), seen
 
 

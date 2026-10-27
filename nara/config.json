@@ -10,12 +10,22 @@
     "타운홀",
     "시민참여단"
   ],
+  "watch_keywords": [
+    "시민참여",
+    "토론회",
+    "공론장",
+    "주민참여",
+    "조직문화",
+    "갈등",
+    "워크숍"
+  ],
   "exclude": [
     "청소용역",
     "시설관리"
   ],
   "competitors": [],
-  "bid_days": 7,
+  "bid_days": 30,
   "prespec_days": 14,
-  "award_days": 365
+  "award_days": 365,
+  "new_days": 4
 }
