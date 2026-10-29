@@ -126,6 +126,7 @@ class MonitorTest(unittest.TestCase):
             {"bidNtceNo": "NEW", "bidNtceOrd": "000", "bidNtceNm": "시민참여 토론회 운영", "bidNtceDt": f(-1), "bidClseDt": f(5)},
             {"bidNtceNo": "OLD", "bidNtceOrd": "000", "bidNtceNm": "시민참여 숙의 워크숍", "bidNtceDt": f(-10), "bidClseDt": f(2)},
             {"bidNtceNo": "CLOSED", "bidNtceOrd": "000", "bidNtceNm": "시민참여 공론화", "bidNtceDt": f(-20), "bidClseDt": f(-1)},
+            {"bidNtceNo": "DIRECT", "bidNtceOrd": "000", "bidNtceNm": "시민참여 해커톤 직찰", "bidNtceDt": f(-10), "bidClseDt": "", "opengDt": f(3)},
         ]
         calls = []
 
@@ -139,6 +140,7 @@ class MonitorTest(unittest.TestCase):
         with mock.patch.object(monitor, "load_seen", return_value={"bid": [], "prespec": []}):
             md, _ = monitor.build_report(cfg, fetch=fetch)
         self.assertNotIn("시민참여 공론화", md)                              # 마감 지난 공고 제외
+        self.assertIn("(개찰·직찰)", md)                                     # 마감일 없는 직찰 공고는 개찰일로
         self.assertLess(md.index("숙의 워크숍"), md.index("토론회 운영"))  # 마감 임박순
         self.assertEqual(md.count("🆕"), 1)                                # 최근 4일 공고만 신규
         self.assertIn("가나협동조합", md)

@@ -127,6 +127,17 @@ def competitor_summary(awards: list[dict]) -> list[dict]:
     return sorted(out, key=lambda x: (-x["건수"], -x["총액"]))
 
 
+def deadline(r: dict) -> str:
+    """입찰마감일시. 직찰(직접 제출) 공고는 API에 마감일시가 비어 있어 개찰일시로 대신한다."""
+    return r.get("bidClseDt") or r.get("opengDt") or ""
+
+
+def _deadline_label(r: dict) -> str:
+    if r.get("bidClseDt"):
+        return _cell(r["bidClseDt"])[:16]
+    return f"{_cell(r.get('opengDt'))[:16]} (개찰·직찰)" if r.get("opengDt") else "-"
+
+
 # ---------- 신규 표시용 상태 ----------
 
 def load_seen() -> dict:
@@ -156,7 +167,7 @@ def bids_table(rows: list[dict], new: set | None = None) -> str:
             title = f"[{title}]({r['bidNtceDtlUrl']})"
         lines.append(f"| {mark} | {_cell(r.get('bidNtceDt'))[:10]} | {title} | "
                      f"{_cell(r.get('dminsttNm') or r.get('ntceInsttNm'))} | {_won(r.get('presmptPrce') or r.get('asignBdgtAmt'))} | "
-                     f"{_cell(r.get('bidClseDt'))[:16]} | {_cell(r.get('cntrctCnclsMthdNm'))} | {', '.join(r['_keywords'])} |")
+                     f"{_deadline_label(r)} | {_cell(r.get('cntrctCnclsMthdNm'))} | {', '.join(r['_keywords'])} |")
     return "\n".join(lines)
 
 
@@ -213,7 +224,7 @@ def build_report(cfg: dict, fetch=g2b.fetch) -> tuple[str, dict]:
     since = (now_dt - timedelta(days=cfg.get("new_days", 4))).strftime("%Y-%m-%d %H:%M")
 
     bids = search_bids(watch, cfg.get("bid_days", 30), exc, fetch)
-    bids = sorted((b for b in bids if (b.get("bidClseDt") or "") >= now), key=lambda b: b.get("bidClseDt", ""))
+    bids = sorted((b for b in bids if deadline(b) >= now), key=deadline)
     pres = search_prespecs(watch, cfg.get("prespec_days", 14), exc, fetch)
     awards = search_awards(kws, cfg.get("award_days", 365), exc, fetch)
     new_bids = {b.get("bidNtceNo") for b in bids if (b.get("bidNtceDt") or "") >= since}
