@@ -36,8 +36,9 @@ OPS = {
 # 사전규격 검색은 사업명 파라미터 이름이 다르다.
 NAME_PARAM = {"bid": "bidNtceNm", "award": "bidNtceNm", "prespec": "prdctClsfcNoNm"}
 
-# 조회기간이 길면 '입력범위값 초과'가 날 수 있어 30일 단위로 나눠 호출한다.
-WINDOW_DAYS = 30
+# 입찰공고·낙찰 API는 한 번에 7일(달력 기준, 시작일~종료일)까지만 조회된다(2026-11 변경).
+# 넘기면 '07 입력범위값 초과'가 나므로 시작일과 종료일이 6일 차이가 되게 나눠 호출한다.
+WINDOW_DAYS = 6
 PAGE_SIZE = 100
 
 ERRORS = {
@@ -45,6 +46,7 @@ ERRORS = {
     "11": "필수 요청 파라미터 누락",
     "12": "해당 오픈API 서비스가 없거나 폐기됨",
     "20": "서비스 접근 거부 — 공공데이터포털에서 이 API의 활용신청 승인 여부를 확인하세요",
+    "07": "입력범위값 초과 — 조회기간이 API 허용 범위보다 깁니다",
     "22": "일일 요청 한도 초과",
     "30": "등록되지 않은 서비스키 — 키 값을 확인하세요(승인 직후면 1~2시간 뒤 다시 시도)",
     "31": "기한이 만료된 서비스키",
@@ -111,7 +113,8 @@ def parse_response(raw: bytes) -> tuple[list[dict], int]:
         return items, total
 
     data = json.loads(text)
-    resp = data.get("response", data)
+    # 정상 응답은 {"response": {...}}, 오류는 {"nkoneps.com.response.ResponseError": {...}} 처럼 온다.
+    resp = data.get("response") or (next(iter(data.values())) if len(data) == 1 else data)
     header = resp.get("header", {})
     code = str(header.get("resultCode", "00"))
     if code in NO_DATA:

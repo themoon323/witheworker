@@ -33,6 +33,12 @@ class ParseTest(unittest.TestCase):
         with self.assertRaisesRegex(g2b.G2BError, r"\[30\]"):
             g2b.parse_response(xml)
 
+    def test_wrapped_error_not_read_as_empty(self):
+        raw = json.dumps({"nkoneps.com.response.ResponseError": {
+            "header": {"resultCode": "07", "resultMsg": "입력범위값 초과 에러"}}}).encode()
+        with self.assertRaisesRegex(g2b.G2BError, r"\[07\]"):
+            g2b.parse_response(raw)
+
     def test_json_access_denied(self):
         with self.assertRaisesRegex(g2b.G2BError, "활용신청"):
             g2b.parse_response(page([], 0, code="20"))
@@ -43,10 +49,13 @@ class FetchTest(unittest.TestCase):
         os.environ["NARA_SERVICE_KEY"] = "abc%2Bdef%3D%3D"
 
     def test_windows_cover_range(self):
-        w = g2b.date_windows(65, end=datetime(2026, 10, 15, 12, 0, tzinfo=g2b.KST))
-        self.assertEqual(len(w), 3)
-        self.assertEqual(w[0][1], "202610151200")
-        self.assertEqual(w[-1][0], "202608111200")
+        w = g2b.date_windows(30, end=datetime(2026, 11, 12, 9, 13, tzinfo=g2b.KST))
+        self.assertEqual(len(w), 5)
+        self.assertEqual(w[0][1], "202611120913")
+        self.assertEqual(w[-1][0], "202610130913")
+        for bgn, end in w:  # API 제한: 시작일과 종료일이 7일 이상 차이 나면 안 된다
+            gap = datetime.strptime(end[:8], "%Y%m%d") - datetime.strptime(bgn[:8], "%Y%m%d")
+            self.assertLessEqual(gap.days, 6)
 
     def test_paging_and_key_decoding(self):
         calls = []
@@ -56,7 +65,7 @@ class FetchTest(unittest.TestCase):
             n = params["pageNo"]
             return page([{"i": n}] * (100 if n == 1 else 5), 105)
 
-        rows = g2b.fetch("bid", keyword="숙의", days=7, getter=getter)
+        rows = g2b.fetch("bid", keyword="숙의", days=5, getter=getter)  # 한 구간(6일) 안
         self.assertEqual(len(rows), 105)
         self.assertEqual([c["pageNo"] for c in calls], [1, 2])
         self.assertEqual(calls[0]["ServiceKey"], "abc+def==")  # urlencode가 한 번만 인코딩

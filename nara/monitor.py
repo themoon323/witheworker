@@ -226,7 +226,7 @@ def build_report(cfg: dict, fetch=g2b.fetch) -> tuple[str, dict]:
     bids = search_bids(watch, cfg.get("bid_days", 30), exc, fetch)
     bids = sorted((b for b in bids if deadline(b) >= now), key=deadline)
     pres = search_prespecs(watch, cfg.get("prespec_days", 14), exc, fetch)
-    awards = search_awards(kws, cfg.get("award_days", 365), exc, fetch)
+    awards = search_awards(kws, cfg.get("award_days", 90), exc, fetch)
     new_bids = {b.get("bidNtceNo") for b in bids if (b.get("bidNtceDt") or "") >= since}
     new_pres = {p.get("bfSpecRgstNo") for p in pres if (p.get("rcptDt") or p.get("rgstDt") or "") >= since}
 

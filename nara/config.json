@@ -30,6 +30,6 @@
   "competitors": [],
   "bid_days": 30,
   "prespec_days": 14,
-  "award_days": 365,
+  "award_days": 90,
   "new_days": 4
 }

@@ -57,7 +57,7 @@ def search_prespecs(keywords: list[str] | None = None, days: int = 14) -> str:
 
 
 @server.tool()
-def analyze_awards(keywords: list[str] | None = None, days: int = 365) -> str:
+def analyze_awards(keywords: list[str] | None = None, days: int = 90) -> str:
     """키워드 관련 용역의 낙찰 결과를 모아 낙찰업체별 수주 건수·총액·평균 낙찰률을 분석한다.
 
     경쟁사 수주 이력과 낙찰가 수준을 파악할 때 쓴다. days는 공고게시일 기준 조회 기간(일).
@@ -72,7 +72,7 @@ def analyze_awards(keywords: list[str] | None = None, days: int = 365) -> str:
 
 
 @server.tool()
-def company_awards(company: str, days: int = 730) -> str:
+def company_awards(company: str, days: int = 180) -> str:
     """특정 업체(업체명 일부)의 키워드 관련 용역 낙찰 이력을 보여준다."""
     try:
         rows = monitor.search_awards(_keywords(None), days, _exclude())
